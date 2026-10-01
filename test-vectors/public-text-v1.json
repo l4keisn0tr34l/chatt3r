@@ -1,0 +1,16 @@
+{
+  "description": "short v1 signed public text, no recipient, no wire padding",
+  "generator": "independent Python struct + cryptography Ed25519, manually modeled from pinned Swift",
+  "version": 1,
+  "type": 2,
+  "ttl": 7,
+  "timestamp": 72623859790382856,
+  "sender_hex": "1111111111111111",
+  "payload_utf8": "hello",
+  "signing_seed_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+  "signing_public_key_hex": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
+  "signing_input_prefix_hex": "0102000102030405060708000005111111111111111168656c6c6f",
+  "signing_padding_byte": 229,
+  "signing_padding_count": 229,
+  "wire_hex": "0102070102030405060708020005111111111111111168656c6c6f39e40fc30cfb0a6f5c82a012450c11503134f81fb33f16e6ac7bf5454f5d5ff2d5daf7b68405195bee2354f6ad91c7c40f3ab1ae668b251c0ea404b71589aa0c"
+}
