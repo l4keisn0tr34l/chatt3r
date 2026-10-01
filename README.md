@@ -1,83 +1,267 @@
 # chatt3r
 
-An offline data link over Bluetooth LE, starting with Linux ↔ iPhone text and
-reusing BitChat's protocol. No accounts, cloud, Wi-Fi or Internet required during
-local communication.
+text from your iphone to your linux laptop, over bluetooth. no wifi, hotspot,
+cable, account, or server needed by the desktop client during chat.
 
-Project destination: https://github.com/l4keisn0tr34l/chatt3r
+built on the bitchat ecosystem instead of starting a new protocol from scratch.
+the longer-term goal is an offline link for text **and files** across linux,
+windows, and iphone. right now, it's an early **public-text-only** client.
 
-## Current status
+> public messages are not encrypted. use test text, not secrets.
 
-- Upstream inspected and pinned: [analysis](docs/upstream-analysis.md).
-- Legacy `bitchat-terminal` builds but is incompatible with the current iOS protocol.
-- A separate `chatt3r` binary in the same source checkout implements a small
-  signed-public-text test harness. Legacy client structure is preserved.
-- User-confirmed bidirectional Linux ↔ stock iPhone BitChat text over BLE.
-  Repeated exchanges with Wi-Fi/cellular disabled still need recorded testing.
-- Quiet chat by default, peer-colored nicknames, editable input/history, and
-  incoming messages that preserve your draft. `--debug` enables BLE diagnostics.
-- Windows, laptop-to-laptop BLE and arbitrary files remain future milestones.
+## where it's at
 
-## Build and try
+| feature | status |
+| --- | --- |
+| linux ↔ stock iphone bitchat text | user-confirmed on real devices |
+| quiet chat, colored nicknames, editable input | implemented; terminal-tested |
+| startup reconnect attempts | up to three; retry logic unit-tested |
+| longer text / compression | not supported yet; max 99 utf-8 bytes |
+| photos, voice notes, arbitrary files | not supported by chatt3r yet |
+| private/encrypted messages | not supported yet |
+| windows and laptop ↔ laptop | not tested / not implemented yet |
 
-On Ubuntu, install Rust and the build/Bluetooth prerequisites if needed:
-`build-essential pkg-config libdbus-1-dev bluez`. Build as a normal user.
+repeated tests with wifi and cellular disabled still need to be recorded.
+automatic recovery from a cold notification subscription is not yet physically
+validated. this isn't a finished, guaranteed-reliable file-sharing app.
+
+## get it running
+
+### 1. set up the laptop
+
+on ubuntu, install [rust](https://rustup.rs) and the build/bluetooth prerequisites:
+
+```bash
+sudo apt install build-essential pkg-config libdbus-1-dev bluez
+```
+
+then clone and build, as your normal user:
 
 ```bash
 git clone https://github.com/l4keisn0tr34l/chatt3r.git
 cd chatt3r
 export PATH="$HOME/.cargo/bin:$PATH"
 cargo build --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r
-cargo test --locked --manifest-path desktop/bitchat-terminal/Cargo.toml
-./desktop/bitchat-terminal/target/debug/chatt3r --scan-only --scan-seconds 30
-./desktop/bitchat-terminal/target/debug/chatt3r --write-limit 128
 ```
 
-Keep stock BitChat open on iPhone in its Bluetooth public room. Start with a short
-nickname such as `iphone` and short test messages. The write limit is configurable
-and **not measured MTU**. Read the [physical test procedure](docs/linux-iphone-test.md)
-for limitations and evidence to collect.
+internet is needed for initial installs/downloads, not for the actual message
+exchange. the launcher never downloads dependencies automatically.
 
-Normal interactive mode colors each peer's nickname consistently, uses cyan for
-`you`, and supports arrow-key editing and session-only history. Set `NO_COLOR=1`
-to disable colors. Piped/redirected output stays plain. Add `--debug` only when
-troubleshooting; periodic announcements and sync packets stay quiet otherwise.
-To pick up a rebuilt binary, `/quit` the old session and restart it.
+### 2. get the iphone ready
 
-This first harness supports public plaintext messages up to 99 UTF-8 bytes.
-Signatures do not provide confidentiality or a verified Noise session. No DMs,
-files, compression, routing or relaying yet. Do not use it for sensitive data.
+- install stock bitchat.
+- enable bluetooth and its permission for bitchat.
+- use a short nickname like `iphone` for the first test.
+- open the **bluetooth public room**, not a geohash/location room or dm.
+- keep the phone unlocked and the app visible while connecting.
 
-## Can I send files from iPhone?
+manual bluetooth pairing isn't required. pairing in system settings alone does
+not establish a bitchat connection.
 
-Not to chatt3r yet. Stock BitChat's checked iOS composer can send photos from its
-camera/photo-library button and voice notes from its microphone control, but
-chatt3r does not receive or save media/file packets. There is no `/send` command.
+### 3. start chat
 
-The upstream binary envelope supports filenames, MIME types, PDFs and generic
-bytes, but the inspected iOS composer has no general Files/PDF picker. Installed
-app versions may differ. We must implement and test desktop receiving before
-phone attachments can become a laptop file-transfer feature.
+```bash
+./scripts/chatt3r
+```
 
-## Repository layout
+wait for a nearby peer, then send `hi` in both directions.
 
-- `context.md`: project requirements and staged roadmap.
-- `desktop/bitchat-terminal/`: included Rust source fork, not a submodule.
-  New harness: `src/bin/chatt3r.rs`, `src/baseline/protocol.rs`, `src/baseline/ui.rs`.
-  Its legacy `bitchat` binary remains preserved; run `--bin chatt3r` explicitly.
-- `desktop/bitchat-terminal/test-vectors/`: language-neutral packet fixtures.
-- `desktop/bitchat-terminal/tests/ui-smoke.py`: Linux PTY tests; run with Python 3
-  after building/fetching dependencies, with `cargo` on PATH.
-- `docs/`: source pins, findings, and reproducible physical-test instructions.
+```text
+iphone is nearby
+[iphone] hi from iphone
+[you] hi from linux
+you>
+```
 
-Builds do not require separate upstream checkouts. Optional references may be
-cloned under ignored `upstream/`: official Swift BitChat and GPL-licensed Android
-BitChat. No Android source is copied or shipped here.
+nicknames are colored per peer; your messages are cyan. incoming messages keep
+the draft you're typing intact. arrow keys edit/recall input; history stays in
+memory, not on disk. ctrl-c, ctrl-d, or `/quit` exits.
 
-## License and provenance
+`[you]` means the bluetooth writes completed, not that the phone confirmed
+delivery. check the phone screen; application delivery receipts aren't wired yet.
 
-[Unlicense](LICENSE), consistent with the primary public-domain upstreams.
-Based on [ShilohEye/bitchat-terminal](https://github.com/ShilohEye/bitchat-terminal)
-and the protocol/BLE behavior of [permissionlesstech/bitchat](https://github.com/permissionlesstech/bitchat).
-The desktop upstream history is retained. Exact analyzed commits and licensing
-notes are in [docs/upstream-analysis.md](docs/upstream-analysis.md).
+## make it a one-word command
+
+put an alias in `~/.zshrc` using the absolute path to **your** checkout. for the
+existing local setup at `~/dev/offline-link`:
+
+```bash
+alias chatt3r='"$HOME/dev/offline-link/scripts/chatt3r"'
+```
+
+reload it:
+
+```bash
+source ~/.zshrc
+chatt3r
+```
+
+if you cloned into `~/chatt3r`, use that path instead. the launcher itself works
+from any folder because it resolves paths relative to its own location.
+
+## commands you'll actually use
+
+| shell command | what it does |
+| --- | --- |
+| `chatt3r` | quiet chat |
+| `chatt3r --debug` | chat with connection, tx/rx, and rejected-packet logs |
+| `chatt3r --help` | print the cheat sheet; no connection |
+| `chatt3r --name laptop` | choose a nickname, max 24 utf-8 bytes |
+| `chatt3r --scan-only --scan-seconds 30` | scan without connecting or sending |
+| `chatt3r --doctor` | inspect the laptop adapter; changes nothing |
+| `chatt3r --build` | rebuild offline from cached dependencies, then exit |
+| `NO_COLOR=1 chatt3r` | disable nickname colors |
+
+without an alias, replace `chatt3r` with `./scripts/chatt3r` from the repo root,
+or use the launcher's absolute path.
+
+inside chat, at the `you>` prompt:
+
+```text
+/peers
+/announce
+/quit
+```
+
+`/announce` resends your presence, not your last message. `--debug` is a launch
+option, not an in-chat command, and it does **not** mean “print help”.
+
+## two limits worth knowing
+
+### the 128-byte frame limit
+
+the launcher supplies `--write-limit 128`, the value used in our initial hardware
+tests. this caps each outgoing frame **including protocol overhead**; larger
+packets are fragmented.
+
+it's not a measured mtu, not a file-size limit, and not a promise that every
+adapter supports it. another link may need a different value:
+
+```bash
+chatt3r --write-limit 64 --debug
+```
+
+### the 99-byte text limit
+
+messages currently have to fit in **99 utf-8 bytes**. plain english characters
+usually use one byte; emoji and other unicode characters may use more.
+
+- longer outgoing messages are rejected, not truncated.
+- longer incoming messages are rejected; `--debug` shows the reason.
+- changing the frame limit won't raise this text limit.
+
+this temporary restriction avoids the upstream compression threshold until we
+implement compatible compression and signature handling. a 500-character or
+500-byte message won't work yet.
+
+## if it stops talking
+
+the full command-and-phone checklist is in **[docs/reconnect.md](docs/reconnect.md)**.
+start with:
+
+```bash
+chatt3r --debug --scan-seconds 90
+```
+
+| symptom | what it means / what to try |
+| --- | --- |
+| no bitchat peer connected | no chat link exists; check permissions and keep the phone app visible |
+| bitchat characteristic unavailable | discovery may have matched a cached uuid; reopen the phone app |
+| notification subscription times out | setup retries up to three times; keep the iphone unlocked |
+| connected, but waiting for an announcement | wait for a peer; try a short iphone nickname and inspect debug logs |
+| chat disconnects | quit/restart; live-session recovery isn't implemented yet |
+| text is rejected | check the byte limit and the debug rejection reason |
+
+startup retries disconnect only the selected peer, not the adapter, and don't
+change pairings. permission failures and unsupported characteristic properties
+are not retried. chat messages are **never automatically replayed**.
+
+finding a service uuid isn't enough: wait for a peer announcement. in debug mode,
+look for `connected and subscribed` before testing messages. logs can include
+public text, nicknames, and peer ids; review them before sharing.
+
+## can i send files from iphone?
+
+not to chatt3r yet. stock bitchat's inspected iphone composer has photo/camera
+attachments and voice notes, but chatt3r doesn't receive or save those packets.
+there's no `/send` command.
+
+the upstream binary envelope supports filenames, mime types, pdfs, and generic
+bytes. that doesn't prove the stock app has an arbitrary-file picker: the ui we
+checked has no general files/pdf import control. installed releases may differ.
+
+first we'll reuse the existing media format to receive a small phone attachment.
+then add safe saves, consent, integrity checks, and arbitrary-file support.
+
+## update and test
+
+quit your current chat before rebuilding:
+
+```bash
+git pull --ff-only
+./scripts/chatt3r --build
+./scripts/chatt3r
+```
+
+if an update introduces dependencies you haven't downloaded, repeat the one-time
+online `cargo build --locked` command from setup, then return to offline use.
+
+for development checks, with cargo on your path:
+
+```bash
+cargo test --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml
+cargo clippy --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r -- -D warnings
+python3 tests/launcher-smoke.py
+python3 desktop/bitchat-terminal/tests/ui-smoke.py
+```
+
+currently: 20 passing unit tests, launcher tests with fake tools, and four linux
+pty cases for draft redraw, colors, and exit/terminal restoration. two interactive
+tests are skipped in the normal unit run and exercised by the pty script.
+
+software tests aren't a substitute for hardware tests. the repeatable physical
+procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
+
+## what's next
+
+1. **harden text:** repeated offline tests, saved preferences, reliable reconnects,
+   larger-message support, and a cleaner desktop core.
+2. **add platforms:** windows ↔ iphone, then linux ↔ windows with the necessary
+   advertising/gatt-server role. the current desktop client is central-only.
+3. **add files:** receive a small phone attachment, then verified arbitrary files.
+   an iphone fork may need macos/xcode if stock ui can't expose the needed flow.
+
+mesh, speed optimizations, and a gui come later. working direct transfers first.
+
+## repo layout
+
+```text
+scripts/chatt3r                     launcher
+desktop/bitchat-terminal/            included rust source, not a submodule
+  src/bin/chatt3r.rs                 application + ble startup
+  src/baseline/protocol.rs           short-text codec and fragmentation
+  src/baseline/ui.rs                 line editing and peer colors
+  test-vectors/                     shared packet fixtures
+  tests/ui-smoke.py                  linux terminal tests
+tests/launcher-smoke.py              launcher tests without bluetooth
+docs/reconnect.md                   practical connection cheat sheet
+docs/linux-iphone-test.md            physical test procedure
+docs/upstream-analysis.md            source pins, compatibility findings
+context.md                          project requirements and roadmap
+```
+
+the legacy `bitchat` binary stays preserved as reference; build/run `chatt3r`
+explicitly or use the launcher. separate upstream checkouts aren't needed to
+build. optional references live under ignored `upstream/` locally.
+
+## credits and license
+
+based on [shiloheye/bitchat-terminal](https://github.com/ShilohEye/bitchat-terminal)
+and the protocol/ble behavior of
+[permissionlesstech/bitchat](https://github.com/permissionlesstech/bitchat).
+the desktop upstream history is retained, with analyzed commits documented in
+[docs/upstream-analysis.md](docs/upstream-analysis.md).
+
+[unlicense](LICENSE), consistent with the primary public-domain upstreams.
+android's gpl source is a behavioral reference only; no android code is copied
+or shipped here.

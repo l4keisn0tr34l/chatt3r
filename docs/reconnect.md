@@ -101,7 +101,7 @@ exit. `chatt3r --debug` belongs in your shell after exiting the chat.
 # use your own nickname (max 24 utf-8 bytes)
 chatt3r --name laptop
 
-# plain text colors, same chat behavior
+# turn off colors, same chat behavior
 NO_COLOR=1 chatt3r
 
 # manual adapter checks, if you prefer those over --doctor
