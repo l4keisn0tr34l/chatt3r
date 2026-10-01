@@ -2,6 +2,7 @@
 name = "bitchat_poc"
 version = "0.1.0"
 edition = "2021"
+license = "Unlicense"
 default-run = "bitchat"
 
 [[bin]]

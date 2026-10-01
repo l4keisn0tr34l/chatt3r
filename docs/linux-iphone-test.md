@@ -1,0 +1,128 @@
+# First chatt3r Linux ↔ iPhone test
+
+**Status: user-confirmed bidirectional text.** The user reported that both
+message directions worked after connecting/subscribing and receiving a signed
+`iphone` announcement. Installed app/iOS version and repeated offline exchanges
+are not recorded yet; complete the checklist below before calling it reliable.
+
+## Setup
+
+1. Install stock BitChat on iPhone. Record its app version and iOS version.
+2. Enable Bluetooth and grant BitChat Bluetooth permission. Keep the app open
+   in the foreground, in the **Bluetooth/mesh public room**, not geohash or DM.
+3. For this narrow first test, use a short iPhone nickname such as `iphone`
+   (ideally ≤8 UTF-8 bytes), with only these two BitChat clients nearby. Longer
+   announcement metadata may cross the compression limit unsupported here.
+4. On Ubuntu, check the adapter. Do not pair devices or change permissions
+   unless a concrete error demonstrates that it is necessary:
+
+```bash
+bluetoothctl list
+bluetoothctl show
+export PATH="$HOME/.cargo/bin:$PATH"
+cargo build --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r
+cargo test --locked --manifest-path desktop/bitchat-terminal/Cargo.toml
+```
+
+No sudo build/install is needed. Missing dependencies on another Ubuntu machine
+may require installing `build-essential pkg-config libdbus-1-dev bluez` beforehand.
+Network access is only for setup; runtime uses local BlueZ/BLE, no server.
+
+## Discovery-only check
+
+From the workspace root:
+
+```bash
+./desktop/bitchat-terminal/target/debug/chatt3r --scan-only --scan-seconds 30
+```
+
+This never connects or sends application packets. It should print
+`[scan] BitChat service found`. No advertisement observed means check the
+foreground app, Bluetooth permission, range, and production/testnet app build.
+It is not proof that the protocol is incompatible.
+
+## Bidirectional short public text
+
+```bash
+./desktop/bitchat-terminal/target/debug/chatt3r --write-limit 128 --name chatt3r-linux --debug
+```
+
+`128` is an **initial operator-selected characteristic value limit**, NOT a
+measurement of negotiated MTU. The program sizes upstream-format fragments to
+fit this configurable limit. btleplug 0.11.8 does not expose a portable negotiated
+MTU. If GATT rejects writes, capture the exact error and try `--write-limit 64`.
+Links with values smaller than the 35-byte minimum fragment overhead cannot use
+this harness; do not claim universal BLE support. Do not infer payload limit or
+MTU from a single successful write with response (it may be a long GATT write).
+
+1. Wait for `[ble] connected and subscribed` and a signed `[peer]` announcement.
+   The CLI sends its own signed announcement immediately and every 15 seconds.
+2. Send `hello from iphone` in the iPhone Bluetooth public room. Confirm the
+   Linux screen displays it with the correct nickname.
+3. Type `hello from linux` in the terminal. Confirm it appears on iPhone.
+   A `[tx] GATT write complete` line alone **does not prove delivery**.
+4. Use `/peers` to inspect discovered peers. `/announce` resends our announcement.
+5. Repeat with numbered short messages in both directions at least 10 times.
+6. Disable Wi-Fi and cellular data on iPhone and Wi-Fi on Linux, leave Bluetooth
+   enabled, and repeat. No hotspot, cable, or Internet-dependent room.
+7. `/quit` or Ctrl-C disconnects. Restart the desktop process and repeat to test
+   reconnection. Identity is deliberately ephemeral per process in this harness.
+
+For everyday chat, omit `--debug` from the command above. The normal UI shows
+messages and one-time peer notices, not recurring frame/sync/announce logs.
+Each peer gets a consistent nickname color and your messages are cyan. Editable
+`you>` input keeps your draft when messages arrive; arrow keys recall session-only
+history. `NO_COLOR=1` disables colors; piped output stays plain. `/quit` and restart
+to load a newly built binary. Ignored/malformed frame diagnostics require `--debug`.
+
+Messages are limited to **99 UTF-8 bytes**, not 99 characters. Public plaintext
+is signed but not confidential, not Noise-authenticated. Do not send secrets.
+No private messaging, file transfer, encryption sessions, auto-reconnection,
+mesh relaying, delivery ACKs, or gossip sync is implemented.
+
+`[drop]` errors are intentional diagnostics, not panics. A compressed/routed
+frame or oversized announcement needs follow-up support. A short nickname and
+isolated two-device test may avoid compressed announcements; this is a temporary
+baseline limitation, not a protocol rule. If a signed public message arrives
+before a valid announcement, wait for the next announce and resend the message.
+
+## Record evidence
+
+To record the interactive run with util-linux `script`:
+
+```bash
+mkdir -p logs
+script -q -c './desktop/bitchat-terminal/target/debug/chatt3r --write-limit 128 --name chatt3r-linux --debug' logs/linux-iphone.typescript
+```
+
+The transcript includes public text, nicknames, and peer IDs. Use test content
+only; review/redact before sharing. Debug metadata never intentionally prints
+private keys or raw cryptographic secrets. Do not add private/local logs to git.
+
+Save:
+
+- Installed BitChat/iOS version, Linux adapter model, Rust and BlueZ versions.
+- Source pins from `docs/upstream-analysis.md` and the desktop branch/diff.
+- Exact invocation and configured write limit; measured MTU remains unknown.
+- Each test message's direction and observed arrival (include phone observation).
+- Offline settings, timing, retries, disconnect/restart behavior and errors.
+- Whether all 10 exchanges passed. If not, retain failure evidence.
+
+## Local scan already performed
+
+Command (normal user, no sudo):
+
+```text
+./desktop/bitchat-terminal/target/debug/chatt3r --scan-only --scan-seconds 12
+```
+
+Observed output:
+
+```text
+[ble] adapter=hci0 (usb:v1D6Bp0246d0548)
+[scan] service=f47b5e2d-4a9e-4c5a-9b3f-8e1d2c3a4b5c; duration=12s; no pairing required
+[scan] duration ended
+```
+
+No BitChat advertisement observed during this scan. Adapter access and scan
+start/stop worked. No connection or message exchange was attempted.

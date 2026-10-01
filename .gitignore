@@ -1,45 +1,13 @@
-# Rust
-/target/
-**/*.rs.bk
-*.pdb
+# Optional, pristine upstream reference checkouts (not development source)
+/upstream/
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
+# Build output and local physical-test captures
+**/target/
+/logs/
+/downloads/
+*.typescript
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Debug
-*.log
-
-# Test coverage
-*.profraw
-*.profdata
-/coverage/
-
-# Local environment
+# Local configuration and credentials
 .env
-.env.local
-
-# Development scripts
-*.pl
-
-# Backup files
-*.backup
-*.bak
-*.old
-*.orig
-
-# Temporary files
-*.tmp
-*.temp
-textdump
-
-
-# User data directory
-.bitchat/
+.env.*
+.DS_Store
