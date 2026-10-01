@@ -5,16 +5,18 @@ mod protocol;
 mod ui;
 
 use btleplug::api::{
-    Central, CharPropFlags, Characteristic, Manager as _, Peripheral as _, ScanFilter, WriteType,
+    Central, CharPropFlags, Characteristic, Manager as _, Peripheral as _, ScanFilter,
+    ValueNotification, WriteType,
 };
 use btleplug::platform::{Adapter, Manager, Peripheral};
 use ed25519_dalek::{SigningKey, VerifyingKey};
-use futures::StreamExt;
+use futures::{stream::BoxStream, StreamExt};
 use protocol::{Packet, Reassembler, ANNOUNCE, FRAGMENT, LEAVE, MAX_PAYLOAD, MESSAGE};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
+use std::future::Future;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{sleep, timeout, Duration};
 use uuid::Uuid;
@@ -244,40 +246,77 @@ fn transient_connect_error(error: &btleplug::Error) -> bool {
         || error.to_string().contains("br-connection-busy")
 }
 
-async fn connect_with_retry(peripheral: &Peripheral, debug: bool) -> Result<()> {
-    for attempt in 1..=3 {
-        if debug {
-            println!("[ble] connecting (attempt {attempt}/3)");
-        }
-        let result = timeout(Duration::from_secs(20), peripheral.connect()).await;
-        let error: Box<dyn Error> = match result {
-            Ok(Ok(())) => return Ok(()),
-            Ok(Err(error)) if !transient_connect_error(&error) => return Err(error.into()),
-            Ok(Err(error)) => error.into(),
-            Err(error) => error.into(),
-        };
-        eprintln!("[ble] connection attempt {attempt} failed: {error}");
-        // Cancel only this peer's pending connection, never restart the adapter
-        // or alter pairing. A dropped/timed-out D-Bus future doesn't cancel BlueZ.
-        let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
-        if attempt == 3 {
-            return Err(error);
-        }
-        println!("[ble] cleared this peer's pending connection; retrying in 2s");
-        sleep(Duration::from_secs(2)).await;
-    }
-    unreachable!()
+type ReadyLink = (Characteristic, BoxStream<'static, ValueNotification>);
+
+#[derive(Debug)]
+struct StartupError {
+    stage: &'static str,
+    cause: Box<dyn Error>,
+    retryable: bool,
 }
 
-async fn chat(peripheral: &Peripheral, options: &Options) -> Result<()> {
-    if options.debug {
+impl std::fmt::Display for StartupError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.stage, self.cause)
+    }
+}
+
+impl Error for StartupError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.cause.as_ref())
+    }
+}
+
+impl StartupError {
+    fn service_not_ready() -> Self {
+        Self {
+            stage: "GATT discovery",
+            cause: "BitChat characteristic unavailable; keep the iPhone app open (discovery can match cached UUIDs)".into(),
+            retryable: true,
+        }
+    }
+
+    fn fatal(stage: &'static str, cause: &'static str) -> Self {
+        Self {
+            stage,
+            cause: cause.into(),
+            retryable: false,
+        }
+    }
+}
+
+async fn startup_stage<T>(
+    stage: &'static str,
+    limit: Duration,
+    operation: impl Future<Output = btleplug::Result<T>>,
+) -> std::result::Result<T, StartupError> {
+    let result = match timeout(limit, operation).await {
+        Ok(result) => result,
+        Err(_) => Err(btleplug::Error::TimedOut(limit)),
+    };
+    result.map_err(|cause| StartupError {
+        stage,
+        retryable: transient_connect_error(&cause),
+        cause: cause.into(),
+    })
+}
+
+async fn prepare_link(
+    peripheral: &Peripheral,
+    debug: bool,
+) -> std::result::Result<ReadyLink, StartupError> {
+    startup_stage("connection", Duration::from_secs(20), peripheral.connect()).await?;
+    if debug {
         println!("[ble] connection established; discovering GATT services");
     }
-    timeout(Duration::from_secs(15), peripheral.discover_services())
-        .await
-        .map_err(|_| "GATT service discovery timed out after 15s")??;
+    startup_stage(
+        "GATT discovery",
+        Duration::from_secs(15),
+        peripheral.discover_services(),
+    )
+    .await?;
     let characteristics = peripheral.characteristics();
-    if options.debug {
+    if debug {
         println!(
             "[ble] GATT discovery complete; {} characteristics",
             characteristics.len()
@@ -286,29 +325,93 @@ async fn chat(peripheral: &Peripheral, options: &Options) -> Result<()> {
     let characteristic = characteristics
         .iter()
         .find(|c| c.uuid == CHARACTERISTIC && c.service_uuid == SERVICE)
-        .ok_or("BitChat characteristic not found")?;
+        .ok_or_else(StartupError::service_not_ready)?
+        .clone();
     if !characteristic.properties.contains(CharPropFlags::NOTIFY)
         || !characteristic
             .properties
             .intersects(CharPropFlags::WRITE | CharPropFlags::WRITE_WITHOUT_RESPONSE)
     {
-        return Err("characteristic lacks notify/write properties".into());
+        return Err(StartupError::fatal(
+            "GATT discovery",
+            "characteristic lacks notify/write properties",
+        ));
     }
-    let mut notifications = peripheral.notifications().await?;
-    if options.debug {
+    let notifications = startup_stage(
+        "notification stream",
+        Duration::from_secs(5),
+        peripheral.notifications(),
+    )
+    .await?;
+    if debug {
         println!(
             "[ble] subscribing to BitChat notifications; properties={:?}",
             characteristic.properties
         );
     }
-    timeout(
+    startup_stage(
+        "notification subscription",
         Duration::from_secs(10),
-        peripheral.subscribe(characteristic),
+        peripheral.subscribe(&characteristic),
     )
-    .await.map_err(|_| "BitChat notification subscription timed out after 10s; keep iPhone unlocked with BitChat in foreground")??;
-    if options.debug {
+    .await?;
+    if debug {
         println!("[ble] connected and subscribed; characteristic={CHARACTERISTIC}");
     }
+    Ok((characteristic, notifications))
+}
+
+/// Retry setup only. Once chat starts, never replay a possibly delivered message.
+async fn retry_startup<T, P, D>(
+    debug: bool,
+    pause: Duration,
+    mut prepare: impl FnMut() -> P,
+    mut disconnect: impl FnMut() -> D,
+) -> Result<T>
+where
+    P: Future<Output = std::result::Result<T, StartupError>>,
+    D: Future<Output = ()>,
+{
+    for attempt in 1..=3 {
+        if debug {
+            println!("[ble] setting up link (attempt {attempt}/3)");
+        }
+        match prepare().await {
+            Ok(link) => return Ok(link),
+            Err(error) => {
+                eprintln!("[ble] startup attempt {attempt} failed: {error}");
+                if !error.retryable || attempt == 3 {
+                    return Err(error.into());
+                }
+                // Dropping a timed-out D-Bus future doesn't cancel BlueZ. Reset
+                // only this peer's pending link, not the adapter or its pairing.
+                disconnect().await;
+                println!(
+                    "[ble] retrying this peer in {}s; keep BitChat open and the iPhone unlocked",
+                    pause.as_secs()
+                );
+                sleep(pause).await;
+            }
+        }
+    }
+    unreachable!()
+}
+
+async fn connect_with_retry(peripheral: &Peripheral, debug: bool) -> Result<ReadyLink> {
+    retry_startup(
+        debug,
+        Duration::from_secs(2),
+        || prepare_link(peripheral, debug),
+        || async {
+            let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
+        },
+    )
+    .await
+}
+
+async fn chat(peripheral: &Peripheral, link: ReadyLink, options: &Options) -> Result<()> {
+    let (characteristic, mut notifications) = link;
+    let characteristic = &characteristic;
     let secret = StaticSecret::random_from_rng(OsRng);
     let noise_public = PublicKey::from(&secret).to_bytes();
     let local = protocol::peer_id(&noise_public);
@@ -406,6 +509,9 @@ async fn main() -> Result<()> {
     let Some(options) = options()? else {
         return Ok(());
     };
+    if options.debug {
+        println!("[debug] BLE diagnostics enabled; --help prints usage");
+    }
     let manager = Manager::new().await?;
     let adapter = manager
         .adapters()
@@ -452,7 +558,7 @@ async fn main() -> Result<()> {
         result = connect_with_retry(&peripheral, options.debug) => result,
     };
     let result = match connection {
-        Ok(()) => chat(&peripheral, &options).await,
+        Ok(link) => chat(&peripheral, link, &options).await,
         Err(error) => Err(error),
     };
     let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
@@ -475,6 +581,77 @@ mod tests {
         assert!(!transient_connect_error(&btleplug::Error::Other(
             "org.bluez.Error.AuthenticationFailed".into()
         )));
+    }
+
+    #[tokio::test]
+    async fn subscription_timeout_is_retryable_and_has_stage_context() {
+        let error = startup_stage(
+            "notification subscription",
+            Duration::ZERO,
+            std::future::pending::<btleplug::Result<()>>(),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.retryable);
+        assert!(error.to_string().contains("notification subscription"));
+        assert!(error.to_string().contains("Timed out"));
+    }
+
+    #[tokio::test]
+    async fn permanent_startup_errors_are_not_retried() {
+        let error = startup_stage("notification subscription", Duration::from_secs(1), async {
+            Err::<(), _>(btleplug::Error::PermissionDenied)
+        })
+        .await
+        .unwrap_err();
+        assert!(!error.retryable);
+        assert!(
+            !StartupError::fatal("GATT discovery", "unsupported characteristic properties")
+                .retryable
+        );
+        assert!(StartupError::service_not_ready().retryable);
+        let value = startup_stage("connection", Duration::from_secs(1), async { Ok(42) })
+            .await
+            .unwrap();
+        assert_eq!(value, 42);
+    }
+
+    #[tokio::test]
+    async fn startup_retries_are_bounded_and_reset_only_between_attempts() {
+        use std::cell::Cell;
+        for (success_on, retryable, expected_attempts, expected_resets) in [
+            (Some(1), true, 1, 0),
+            (Some(2), true, 2, 1),
+            (None, true, 3, 2),
+            (None, false, 1, 0),
+        ] {
+            let attempts = Cell::new(0);
+            let resets = Cell::new(0);
+            let result = retry_startup(
+                false,
+                Duration::ZERO,
+                || {
+                    attempts.set(attempts.get() + 1);
+                    std::future::ready(if success_on == Some(attempts.get()) {
+                        Ok(42)
+                    } else {
+                        Err(StartupError {
+                            stage: "notification subscription",
+                            cause: "test failure".into(),
+                            retryable,
+                        })
+                    })
+                },
+                || {
+                    resets.set(resets.get() + 1);
+                    std::future::ready(())
+                },
+            )
+            .await;
+            assert_eq!(result.is_ok(), success_on.is_some());
+            assert_eq!(attempts.get(), expected_attempts);
+            assert_eq!(resets.get(), expected_resets);
+        }
     }
 
     #[test]

@@ -32,7 +32,7 @@ application lockfile for reproducible subsequent builds.
 - Added the isolated `src/bin/chatt3r.rs` / `src/baseline/protocol.rs` harness;
   legacy code changes are limited to fixing an existing test's misspelled
   `FLAG_HAS_CHANNEL` reference to `MSG_FLAG_HAS_CHANNEL`.
-- Final `cargo test --offline --locked` passes **17 tests** (4 legacy, 13 harness).
+- Final `cargo test --offline --locked` passes **20 tests** (4 legacy, 16 harness).
   Two terminal-only tests are skipped by the default unit run and exercised
   separately in four PTY cases by `tests/ui-smoke.py`.
   `cargo build --offline --locked --bins`, harness Clippy with `-D warnings`,
@@ -226,3 +226,29 @@ The user's subsequent interactive run subscribed successfully, received verified
 This is user-reported evidence, not an agent-observed phone screen or a complete
 10-message offline repeat test. Wi-Fi/cellular state and installed versions are
 still unknown. No encryption/Windows/file support is inferred from this result.
+
+### Reconnect follow-up and launcher
+
+A later reconnect again failed notification subscription on the first attempt;
+its second fresh attempt subscribed and received verified `iphone` announcements.
+The user then reported chat working again. Added bounded startup retries across
+connection, GATT discovery, and notification subscription (three attempts total,
+not nested retries). Only the chosen peer is disconnected between attempts;
+permissions/unsupported characteristic properties are not retried. Once chat
+starts, messages are never automatically replayed and live disconnects still
+require restarting the client.
+
+A subsequent launcher probe found a cached iPhone service UUID but enumerated
+14 characteristics without the BitChat characteristic. Missing app service is
+now treated as a bounded retryable startup condition, not proof that the app is
+advertising/ready. This illustrates a discovery limitation: BlueZ's device UUID
+list can include cached services. The automatic recovery path is unit-tested,
+but recovery from these failures with the new helper is not yet physically
+confirmed; do not claim the latest probe established chat.
+
+`scripts/chatt3r` resolves paths relative to itself, supplies the operator's
+128-byte frame limit, keeps the terminal attached, and builds offline only when
+needed or explicitly requested. `--doctor` only reads adapter state. Launcher
+smoke tests use fake tools, paths with spaces, and forwarded arguments/stdin;
+no Bluetooth settings are touched. [docs/reconnect.md](reconnect.md) contains the
+phone-side manual steps and the command cheat sheet.

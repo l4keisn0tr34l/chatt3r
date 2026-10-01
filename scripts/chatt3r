@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# just starts the client. no pairing, no bluetooth resets, no sneaky retries of messages.
+set -euo pipefail
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+root=$(cd -- "$script_dir/.." && pwd)
+manifest="$root/desktop/bitchat-terminal/Cargo.toml"
+target="$root/desktop/bitchat-terminal/target"
+bin="$target/debug/chatt3r"
+
+usage() {
+    printf '%s\n' \
+        'chatt3r — the easy launcher' \
+        '' \
+        'chatt3r                          quiet chat' \
+        'chatt3r --debug                  chat + bluetooth diagnostics, not help' \
+        'chatt3r --help                   this cheat sheet' \
+        'chatt3r --name laptop            pick your nickname' \
+        'chatt3r --scan-only --scan-seconds 30    scan without connecting' \
+        'chatt3r --doctor                 check the laptop adapter; changes nothing' \
+        'chatt3r --build                  rebuild only, then exit' \
+        '' \
+        'keep the iphone unlocked with bitchat open in its bluetooth public room.' \
+        'this uses a 128-byte write limit, not a measured mtu. override with --write-limit.' \
+        'public text only, max 99 utf-8 bytes. no files, dms, or message encryption yet.' \
+        'in chat: /peers, /announce, /quit. ctrl-c or ctrl-d also exits.' \
+        'reconnect notes: docs/reconnect.md'
+}
+
+build() {
+    local cargo_bin
+    if command -v cargo >/dev/null 2>&1; then
+        cargo_bin=$(command -v cargo)
+    elif [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+        cargo_bin="$HOME/.cargo/bin/cargo"
+    else
+        printf '%s\n' 'rust/cargo is missing. install rust first; see the readme.' >&2
+        return 1
+    fi
+    printf '%s\n' 'building chatt3r...' >&2
+    if ! "$cargo_bin" build --quiet --offline --locked --manifest-path "$manifest" --target-dir "$target" --bin chatt3r; then
+        printf '%s\n' 'build failed. if dependencies are not cached, do the one-time online build:' >&2
+        printf 'cargo build --locked --manifest-path %q --target-dir %q --bin chatt3r\n' "$manifest" "$target" >&2
+        return 1
+    fi
+}
+
+case "${1:-}" in
+    --help|-h)
+        usage
+        exit 0
+        ;;
+    --build)
+        if [[ $# -ne 1 ]]; then
+            printf '%s\n' '--build is build-only. run chat separately afterward.' >&2
+            exit 2
+        fi
+        build
+        exit 0
+        ;;
+    --doctor)
+        if [[ $# -ne 1 ]]; then
+            printf '%s\n' '--doctor just checks the adapter. run chat separately afterward.' >&2
+            exit 2
+        fi
+        if ! command -v bluetoothctl >/dev/null 2>&1; then
+            printf '%s\n' 'bluetoothctl is missing. on ubuntu, install bluez.' >&2
+            exit 1
+        fi
+        printf '%s\n' 'checking the laptop adapter — no pairing or settings changes.'
+        bluetoothctl list
+        bluetoothctl show
+        exit 0
+        ;;
+esac
+
+if [[ ! -x "$bin" ]]; then
+    build
+fi
+
+# keep stdin/stdout attached to your terminal so colors and draft editing work.
+# the explicit target-dir above makes this path independent of cargo env settings.
+exec "$bin" --write-limit 128 "$@"
