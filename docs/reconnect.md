@@ -120,9 +120,14 @@ use that phone without publishing your address. put this in **your own**
 export CHATT3R_LE_PEER=AA:BB:CC:DD:EE:FF
 ```
 
-`chatt3r` will use direct le; `chatt3r --debug` works too. `--scan-only`,
-`--doctor`, `--build`, and an explicit `--direct-le` still do what you ask.
-this setting is only on your machine, not in the git repo.
+`chatt3r` will use direct le **and wait for the phone app to become ready**;
+`chatt3r --debug` shows each setup attempt. you can start it before opening
+bitchat; ctrl-c cancels. the client backs off from five to 30 seconds between
+failed startup attempts, but cannot launch the ios app or promise background
+advertising.
+`--scan-only`, `--doctor`, `--build`, and an explicit `--direct-le` still do what
+you ask. without the local setting, opt in with `--direct-le <address>
+--wait-for-peer`. this setting is only on your machine, not in the git repo.
 
 ## commands inside chat
 

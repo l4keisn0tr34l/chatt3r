@@ -62,6 +62,28 @@ fn incoming_att_request(packet: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
+fn att_error(request: u8, response: &[u8]) -> Option<io::Error> {
+    if response.first() != Some(&0x01) {
+        return None;
+    }
+    if response.len() != 5 || response[1] != request {
+        return Some(invalid("malformed ATT error response"));
+    }
+    if response[4] == 0x0a {
+        let description = match request {
+            0x10 => "BitChat LE service not found; open BitChat on the phone",
+            0x08 => "BitChat LE characteristic not found",
+            0x04 => "BitChat LE notify descriptor not found",
+            _ => "ATT attribute not found",
+        };
+        return Some(io::Error::new(io::ErrorKind::NotFound, description));
+    }
+    Some(io::Error::other(format!(
+        "ATT error for opcode 0x{request:02x}: {}",
+        hex::encode(response)
+    )))
+}
+
 /// A single ATT request is in flight; a dedicated reader routes notifications
 /// separately so an announcement cannot be mistaken for a request response.
 pub struct DirectAtt {
@@ -183,12 +205,8 @@ impl DirectAtt {
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "ATT response timed out"))?
             .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionAborted, "LE link closed"))?;
-        if response.first() == Some(&1) {
-            return Err(io::Error::other(format!(
-                "ATT error for opcode 0x{:02x}: {}",
-                packet[0],
-                hex::encode(response)
-            )));
+        if let Some(error) = att_error(packet[0], &response) {
+            return Err(error);
         }
         if response.first() != Some(&expected) {
             return Err(io::Error::other(format!(
@@ -471,6 +489,18 @@ mod tests {
         assert!(!matches_uuid(&reversed[..15], uuid));
         assert!(le16(&[3]).is_err());
     }
+    #[test]
+    fn closed_app_is_a_clear_retryable_gatt_error() {
+        let error = att_error(0x10, &[0x01, 0x10, 0x83, 0x00, 0x0a]).unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(error.to_string().contains("open BitChat"));
+        assert_eq!(
+            att_error(0x10, &[0x01, 0x08, 0, 0, 0x0a]).unwrap().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert!(att_error(0x10, &[0x11, 0x06]).is_none());
+    }
+
     #[test]
     fn incoming_iphone_request_does_not_steal_our_response() {
         assert_eq!(

@@ -38,6 +38,7 @@ struct Options {
     scan_only: bool,
     scan_seconds: u64,
     direct_le: Option<BDAddr>,
+    wait_for_peer: bool,
     debug: bool,
 }
 
@@ -48,6 +49,7 @@ fn options() -> Result<Option<Options>> {
         scan_only: false,
         scan_seconds: 30,
         direct_le: None,
+        wait_for_peer: false,
         debug: false,
     };
     let mut args = std::env::args().skip(1);
@@ -58,7 +60,7 @@ fn options() -> Result<Option<Options>> {
                     "chatt3r — experimental BitChat BLE public-text baseline\n\
 Usage: chatt3r --write-limit <bytes> [--name <nickname>] [--debug]\n\
        chatt3r --scan-only [--scan-seconds <seconds>]\n\
-       chatt3r --direct-le <phone-address> [--debug] (linux LE-only link)\n\
+       chatt3r --direct-le <phone-address> [--wait-for-peer] [--debug] (linux LE-only link)\n\
 --write-limit: operator-provided characteristic value limit, NOT measured MTU (36..512).\n\
 Short public messages only (99 UTF-8 bytes). No confidentiality, DMs, files or relaying.\n\
 Keep stock BitChat open on iPhone in the Bluetooth/mesh public room.\n\
@@ -79,12 +81,16 @@ Arrow keys edit/recall input; incoming messages preserve your draft. NO_COLOR di
             "--direct-le" => {
                 options.direct_le = Some(args.next().ok_or("missing LE phone address")?.parse()?)
             }
+            "--wait-for-peer" => options.wait_for_peer = true,
             "--debug" | "-d" => options.debug = true,
             _ => return Err(format!("unknown argument: {arg}; use --help").into()),
         }
     }
     if options.name.is_empty() || options.name.len() > 24 {
         return Err("nickname must be 1..24 UTF-8 bytes".into());
+    }
+    if options.wait_for_peer && options.direct_le.is_none() {
+        return Err("--wait-for-peer requires --direct-le <phone-address>".into());
     }
     if options.direct_le.is_some() && options.scan_only {
         return Err("--direct-le connects; it cannot be combined with --scan-only".into());
@@ -595,6 +601,66 @@ async fn chat(
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn retryable_direct_startup(error: &std::io::Error) -> bool {
+    !matches!(
+        error.kind(),
+        std::io::ErrorKind::PermissionDenied
+            | std::io::ErrorKind::InvalidInput
+            | std::io::ErrorKind::InvalidData
+            | std::io::ErrorKind::Unsupported
+            | std::io::ErrorKind::AddrNotAvailable
+    ) && !matches!(error.raw_os_error(), Some(libc::ENODEV | libc::ENETDOWN))
+}
+
+#[cfg(target_os = "linux")]
+fn direct_retry_delay(attempt: u64) -> Duration {
+    Duration::from_secs(match attempt {
+        1 => 5,
+        2 => 10,
+        3 => 20,
+        _ => 30,
+    })
+}
+
+#[cfg(target_os = "linux")]
+async fn connect_direct(
+    address: BDAddr,
+    wait: bool,
+    debug: bool,
+) -> Result<Option<std::sync::Arc<linux_att::DirectAtt>>> {
+    if wait {
+        println!("Waiting for the known phone's BitChat service… open the app when ready; ctrl-c cancels.");
+    }
+    let mut attempt = 0u64;
+    loop {
+        attempt = attempt.saturating_add(1);
+        let result = tokio::select! {
+            _ = tokio::signal::ctrl_c() => return Ok(None),
+            result = linux_att::DirectAtt::connect(address.into_inner(), SERVICE, CHARACTERISTIC) => result,
+        };
+        match result {
+            Ok(link) => return Ok(Some(link)),
+            Err(error) if wait && retryable_direct_startup(&error) => {
+                let pause = direct_retry_delay(attempt);
+                if debug {
+                    eprintln!(
+                        "[ble] phone not ready (setup attempt {attempt}: {error}); retrying in {}s",
+                        pause.as_secs()
+                    );
+                } else if attempt % 6 == 1 {
+                    println!("Still waiting for BitChat on the known phone; ctrl-c cancels.");
+                }
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => return Ok(None),
+                    _ = sleep(pause) => {},
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let Some(options) = options()? else {
@@ -609,8 +675,10 @@ async fn main() -> Result<()> {
         if options.debug {
             println!("[ble] direct LE ATT for {address}; no BlueZ profile auto-connect, pairing unchanged");
         }
-        let link =
-            linux_att::DirectAtt::connect(address.into_inner(), SERVICE, CHARACTERISTIC).await?;
+        let Some(link) = connect_direct(address, options.wait_for_peer, options.debug).await?
+        else {
+            return Ok(());
+        };
         if options.debug {
             println!("[ble] direct LE connected, GATT verified, notifications enabled; negotiated ATT MTU allows {}-byte frames", link.max_value());
         }
@@ -737,6 +805,35 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn direct_startup_wait_retries_only_missing_or_transient_links() {
+        use std::io::{Error as IoError, ErrorKind};
+        for kind in [
+            ErrorKind::NotFound,
+            ErrorKind::TimedOut,
+            ErrorKind::ConnectionRefused,
+            ErrorKind::ConnectionReset,
+        ] {
+            assert!(retryable_direct_startup(&IoError::from(kind)), "{kind:?}");
+        }
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::InvalidInput,
+            ErrorKind::InvalidData,
+            ErrorKind::Unsupported,
+        ] {
+            assert!(!retryable_direct_startup(&IoError::from(kind)), "{kind:?}");
+        }
+        assert!(!retryable_direct_startup(&IoError::from_raw_os_error(
+            libc::ENODEV
+        )));
+        assert_eq!(
+            [1, 2, 3, 4, 50].map(direct_retry_delay),
+            [5, 10, 20, 30, 30].map(Duration::from_secs)
+        );
+    }
+
     #[test]
     fn only_transient_connection_errors_are_retried() {
         assert!(transient_connect_error(&btleplug::Error::Other(

@@ -292,4 +292,9 @@ text, not an inferred GATT delivery receipt. Exact wifi/cellular settings,
 repeated offline counts, and reconnect-after-range remain unrecorded. The raw HCI/strace files were deleted.
 See [docs/direct-le.md](direct-le.md) for the architecture checkpoint and
 limitations. The default btleplug central path stays unchanged; Linux-only
-`--direct-le <address>` explicitly selects the new backend.
+`--direct-le <address>` explicitly selects the new backend. A later opt-in
+`--wait-for-peer` change lets it wait in bounded startup attempts for the
+known phone's GATT service. with the app closed, a physical probe saw repeated
+ATT `Attribute Not Found` replies and kept waiting; the open-app transition
+has not yet been physically confirmed. it does not start the iOS app, guarantee
+iOS background advertising, replay messages, or resume an interrupted chat.

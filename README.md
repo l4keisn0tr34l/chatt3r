@@ -15,7 +15,7 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | --- | --- |
 | linux ↔ stock iphone bitchat text | user-confirmed on real devices |
 | quiet chat, colored nicknames, editable input | implemented; terminal-tested |
-| startup reconnect attempts | up to three per candidate; retry logic unit-tested |
+| startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait (closed-app wait observed, reopen transition pending) |
 | known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
 | longer text / compression | not supported yet; max 99 utf-8 bytes |
 | photos, voice notes, arbitrary files | not supported by chatt3r yet |
@@ -112,7 +112,7 @@ from any folder because it resolves paths relative to its own location.
 | `chatt3r --name laptop` | choose a nickname, max 24 utf-8 bytes |
 | `chatt3r --scan-only --scan-seconds 30` | scan without connecting or sending |
 | `chatt3r --direct-le <phone-address>` | linux-only LE connection for a known phone when bluez picks classic/audio instead |
-| `CHATT3R_LE_PEER=<phone-address> chatt3r` | locally select that direct LE phone by default; never publish your real address |
+| `CHATT3R_LE_PEER=<phone-address> chatt3r` | locally select that direct LE phone and wait for its app to become ready; never publish your real address |
 | `chatt3r --doctor` | inspect the laptop adapter; changes nothing |
 | `chatt3r --build` | rebuild offline from cached dependencies, then exit |
 | `NO_COLOR=1 chatt3r` | disable nickname colors |
@@ -179,7 +179,10 @@ chatt3r --debug --scan-seconds 90
 
 startup retries disconnect only the selected peer, not the adapter, and don't
 change pairings. cached devices are ignored until live scan evidence arrives;
-missing-service candidates are skipped rather than retried on the same address. permission failures and unsupported characteristic properties
+missing-service candidates are skipped rather than retried on the same address.
+for a configured known phone, direct le can **start waiting before the app is
+open** (ctrl-c cancels); startup attempts back off from five to 30 seconds.
+it can't launch the iphone app or guarantee ios background advertising. permission failures and unsupported characteristic properties
 are not retried. chat messages are **never automatically replayed**.
 
 finding a service uuid isn't enough: wait for a peer announcement. in debug mode,
@@ -221,7 +224,7 @@ python3 tests/launcher-smoke.py
 python3 desktop/bitchat-terminal/tests/ui-smoke.py
 ```
 
-currently: 28 passing unit tests, launcher tests with fake tools, and four linux
+currently: 30 passing unit tests, launcher tests with fake tools, and four linux
 pty cases for draft redraw, colors, and exit/terminal restoration. two interactive
 tests are skipped in the normal unit run and exercised by the pty script.
 
@@ -232,8 +235,12 @@ procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
 
 1. **harden text:** repeated offline tests, saved preferences, reliable reconnects,
    larger-message support, and a cleaner desktop core.
-2. **add platforms:** windows ↔ iphone, then linux ↔ windows with the necessary
-   advertising/gatt-server role. the current desktop client is central-only.
+2. **remove the phone dependency:** linux ↔ linux needs desktop advertising +
+   a gatt server; the adapter exposes the bluez APIs, but even a temporary
+   test advertisement currently fails registration on this controller.
+   the backend is not implemented. see
+   [docs/laptop-to-laptop.md](docs/laptop-to-laptop.md).
+   then investigate windows and its separate peripheral/server APIs.
 3. **add files:** receive a small phone attachment, then verified arbitrary files.
    an iphone fork may need macos/xcode if stock ui can't expose the needed flow.
 
@@ -254,6 +261,7 @@ tests/launcher-smoke.py              launcher tests without bluetooth
 docs/reconnect.md                   practical connection cheat sheet
 docs/linux-iphone-test.md            physical test procedure
 docs/upstream-analysis.md            source pins, compatibility findings
+docs/laptop-to-laptop.md             desktop peripheral plan (not shipped)
 context.md                          project requirements and roadmap
 ```
 

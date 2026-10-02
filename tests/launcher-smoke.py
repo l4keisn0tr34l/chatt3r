@@ -73,7 +73,7 @@ print('fake adapter state')
         assert record["stdin"] == "draft\n", record
     env["CHATT3R_LE_PEER"] = "AA:BB:CC:DD:EE:FF"
     for args, expected in [
-        (("--debug",), ["--direct-le", "AA:BB:CC:DD:EE:FF", "--debug"]),
+        (("--debug",), ["--direct-le", "AA:BB:CC:DD:EE:FF", "--wait-for-peer", "--debug"]),
         (("--debug", "--scan-only"), ["--debug", "--scan-only"]),
         (("--direct-le", "11:22:33:44:55:66"), ["--direct-le", "11:22:33:44:55:66"]),
     ]:

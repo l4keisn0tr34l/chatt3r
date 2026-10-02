@@ -3,7 +3,9 @@
 ## architecture checkpoint — dual-mode phone recovery
 
 **what changed:** an explicit `--direct-le <phone-address>` transport bypasses
-bluez's generic paired-device `connect()` for linux ↔ iphone. normal bluez
+bluez's generic paired-device `connect()` for linux ↔ iphone. optional
+`--wait-for-peer` retries *startup setup only* with a five-to-30-second
+backoff so chat can be launched before the iphone app is foregrounded. normal bluez
 scanning/chat remains the default. neither path unpairs, restarts bluetooth, or
 replays a chat message. this is a direct link, **not** a live-session resume.
 
@@ -81,7 +83,12 @@ including a fully offline iphone run**. this is user-confirmed physical
 bidirectional text on the new backend, not merely a completed GATT write.
 exact radio-switch settings and repetitions have not been recorded.
 out-of-range reconnect still requires restarting the client; the next
-milestone is a no-unpairing range/reconnect test.
+milestone is a no-unpairing range/reconnect test. with the iphone app closed,
+a physical `--wait-for-peer` probe reported missing BitChat GATT service and
+kept retrying without sending chat packets; it did not unpair or restart the
+adapter. the **closed app → reopened app → connected** transition still needs
+a user-run check. the wait does not wake an ios app or guarantee its background
+advertising; ctrl-c cancels the wait.
 
 **what to understand before proceeding:** roles and pairing are separate. the
 iphone can advertise and accept a temporary le/gatt link without an ios

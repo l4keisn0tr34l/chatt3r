@@ -18,6 +18,7 @@ usage() {
         'chatt3r --name laptop            pick your nickname' \
         'chatt3r --scan-only --scan-seconds 30    scan without connecting' \
         'chatt3r --direct-le <phone-address>   linux LE-only recovery for a known phone' \
+        'chatt3r --direct-le <address> --wait-for-peer   wait before starting chat' \
         'CHATT3R_LE_PEER=<phone-address> chatt3r    use that phone by default (local setting)' \
         'chatt3r --doctor                 check the laptop adapter; changes nothing' \
         'chatt3r --build                  rebuild only, then exit' \
@@ -91,7 +92,7 @@ if [[ -n "${CHATT3R_LE_PEER:-}" ]]; then
         esac
     done
     if [[ $use_direct -eq 1 ]]; then
-        exec "$bin" --write-limit 128 --direct-le "$CHATT3R_LE_PEER" "$@"
+        exec "$bin" --write-limit 128 --direct-le "$CHATT3R_LE_PEER" --wait-for-peer "$@"
     fi
 fi
 
