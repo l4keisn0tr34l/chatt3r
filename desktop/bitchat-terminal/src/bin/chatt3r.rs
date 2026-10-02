@@ -124,6 +124,7 @@ async fn discover(
             match event {
                 CentralEvent::DeviceDiscovered(id) => scan.observe(id, Evidence::DeviceDiscovered),
                 CentralEvent::DeviceUpdated(id)
+                | CentralEvent::ServicesAdvertisement { id, .. }
                 | CentralEvent::ServiceDataAdvertisement { id, .. }
                 | CentralEvent::ManufacturerDataAdvertisement { id, .. } => {
                     scan.observe(id, Evidence::RadioUpdate);
