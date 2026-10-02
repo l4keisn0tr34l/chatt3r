@@ -16,6 +16,7 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | linux ↔ stock iphone bitchat text | user-confirmed on real devices |
 | quiet chat, colored nicknames, editable input | implemented; terminal-tested |
 | startup reconnect attempts | up to three per candidate; retry logic unit-tested |
+| known dual-mode phone whose bluez profile hides bitchat | explicit linux `--direct-le` path; signed peer announcement hardware-tested, text pending |
 | longer text / compression | not supported yet; max 99 utf-8 bytes |
 | photos, voice notes, arbitrary files | not supported by chatt3r yet |
 | private/encrypted messages | not supported yet |
@@ -108,6 +109,8 @@ from any folder because it resolves paths relative to its own location.
 | `chatt3r --help` | print the cheat sheet; no connection |
 | `chatt3r --name laptop` | choose a nickname, max 24 utf-8 bytes |
 | `chatt3r --scan-only --scan-seconds 30` | scan without connecting or sending |
+| `chatt3r --direct-le <phone-address>` | linux-only LE connection for a known phone when bluez picks classic/audio instead |
+| `CHATT3R_LE_PEER=<phone-address> chatt3r` | locally select that direct LE phone by default; never publish your real address |
 | `chatt3r --doctor` | inspect the laptop adapter; changes nothing |
 | `chatt3r --build` | rebuild offline from cached dependencies, then exit |
 | `NO_COLOR=1 chatt3r` | disable nickname colors |
@@ -165,7 +168,7 @@ chatt3r --debug --scan-seconds 90
 
 | symptom | what it means / what to try |
 | --- | --- |
-| no live bitchat peer found | no chat link exists; keep the phone app visible in its bluetooth public room |
+| no live bitchat peer found | keep the app visible; if the phone advertises but bluez hides its uuid, use [direct le recovery](docs/reconnect.md#if-bluez-picks-the-phones-audio-profile-instead-of-bitchat-le) |
 | bitchat characteristic unavailable | a live address may carry a cached uuid; the client skips it and looks for another |
 | notification subscription times out | setup retries up to three times; keep the iphone unlocked |
 | connected, but waiting for an announcement | wait for a peer; try a short iphone nickname and inspect debug logs |
@@ -216,7 +219,7 @@ python3 tests/launcher-smoke.py
 python3 desktop/bitchat-terminal/tests/ui-smoke.py
 ```
 
-currently: 25 passing unit tests, launcher tests with fake tools, and four linux
+currently: 28 passing unit tests, launcher tests with fake tools, and four linux
 pty cases for draft redraw, colors, and exit/terminal restoration. two interactive
 tests are skipped in the normal unit run and exercised by the pty script.
 
@@ -242,6 +245,7 @@ desktop/bitchat-terminal/            included rust source, not a submodule
   src/bin/chatt3r.rs                 application + ble startup
   src/baseline/protocol.rs           short-text codec and fragmentation
   src/baseline/ui.rs                 line editing and peer colors
+  src/baseline/linux_att.rs          opt-in linux direct le/gatt transport
   test-vectors/                     shared packet fixtures
   tests/ui-smoke.py                  linux terminal tests
 tests/launcher-smoke.py              launcher tests without bluetooth
@@ -251,7 +255,11 @@ docs/upstream-analysis.md            source pins, compatibility findings
 context.md                          project requirements and roadmap
 ```
 
-the legacy `bitchat` binary stays preserved as reference; build/run `chatt3r`
+the linux direct le path is isolated in `desktop/bitchat-terminal/src/baseline/linux_att.rs`.
+it bypasses bluez's generic connection **only** when selected explicitly, and
+keeps the packet/ui code shared. see [docs/direct-le.md](docs/direct-le.md) for
+the architecture and evidence. the legacy `bitchat` binary stays preserved as
+reference; build/run `chatt3r`
 explicitly or use the launcher. separate upstream checkouts aren't needed to
 build. optional references live under ignored `upstream/` locally.
 

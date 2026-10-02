@@ -263,3 +263,31 @@ needed or explicitly requested. `--doctor` only reads adapter state. Launcher
 smoke tests use fake tools, paths with spaces, and forwarded arguments/stdin;
 no Bluetooth settings are touched. [docs/reconnect.md](reconnect.md) contains the
 phone-side manual steps and the command cheat sheet.
+
+### Paired dual-mode iphone: later root cause and linux recovery
+
+The user identified the installed iphone app as app store v1.7.1. The matching
+upstream tag `v1.7.1` advertises the same mainnet UUID as this client. A
+consented one-time HCI monitor captured its connectable LE advertisement on
+a resolvable private address, with the correct UUID bytes. BlueZ mapped it to
+the paired public iphone identity but omitted BitChat from that profile's D-Bus
+UUID list. A targeted `Device1.Connect()` returned `br-connection-canceled`;
+bluetoothd logged hands-free/audio profile failures. Keeping an LE scan active
+and pre-establishing an LE socket did not fix BlueZ's bearer choice.
+
+A direct, read-only `gatttool -t public` probe found the BitChat GATT service
+and notify/write characteristic **without unpairing**. A native Linux L2CAP
+ATT socket then established an LE link and exchanged MTU; it required binding
+the local ATT CID before connecting. The first prototype mistook a simultaneous
+incoming ATT write from the dual-role phone for its own discovery response and
+closed the socket. The native module now handles that request separately.
+Afterwards, a physical run negotiated MTU 185, verified/subscribed to BitChat,
+sent an announcement and received multiple verified signed `android` peer
+announcements. `/peers` listed it and `/quit` closed the link, while the pairing
+remained intact. A later user terminal log shows a signed `[android] yo works
+right` reply and successful Linux GATT writes; the user confirmed `android`
+is their iphone nickname. Linux → iphone **display** still needs explicit user
+confirmation before claiming bidirectional text on the new backend. The raw HCI/strace files were deleted.
+See [docs/direct-le.md](direct-le.md) for the architecture checkpoint and
+limitations. The default btleplug central path stays unchanged; Linux-only
+`--direct-le <address>` explicitly selects the new backend.

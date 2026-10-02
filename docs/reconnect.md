@@ -70,6 +70,7 @@ what to look for:
 - no **live** peer found: nothing connected. messages can't arrive yet. check
   the phone steps above; don't treat a message typed on the phone as a send.
   a paired device in `bluetoothctl devices` is not a live bitchat advertisement.
+  if the phone *is* advertising but bluez hides its uuid, see direct le below.
 - `live bitchat candidate`, but its characteristic is unavailable: bluez may
   remember an old service uuid even when the app's service isn't ready. the
   client skips this address and keeps scanning for another live candidate until
@@ -84,6 +85,44 @@ what to look for:
   live-session recovery, and messages are never automatically replayed.
 - rejected packet: `--debug` shows the reason. the current codec only supports
   short, uncompressed public text and short announcements.
+
+## if bluez picks the phone's audio profile instead of bitchat le
+
+on some paired dual-mode iphones, the radio advertises bitchat but bluez's
+cached device profile omits its uuid. bluez's generic `connect()` may then try
+classic hands-free/audio and immediately fail. this is **not** fixed by pairing
+again; that just changes the cache temporarily.
+
+first identify **your own phone's** public identity address with
+`bluetoothctl devices` and `bluetoothctl info <address>`. with the phone nearby
+and bitchat foregrounded, substitute that address (do not literally copy this
+example):
+
+```bash
+chatt3r --direct-le AA:BB:CC:DD:EE:FF --debug
+```
+
+this linux-only path opens a direct le att socket, verifies the bitchat gatt
+service and notify/write characteristic, subscribes, then uses the **same**
+packet validator and terminal chat. it does not unpair, reset bluetooth, or
+switch on a file-transfer feature. the 128-byte frame limit is capped against
+the negotiated att mtu. its known hardware evidence is a signed peer
+announcement and clean `/quit`; two-way text on this new path still needs your
+confirmation. only use an address you identified; it does **not** search every
+nearby phone. if it disconnects after moving out of range, restart the command:
+live-session resume and automatic message replay are not implemented.
+
+once you've confirmed text in both directions, you can make the plain launcher
+use that phone without publishing your address. put this in **your own**
+`~/.zshrc`, substituting your address, then `source ~/.zshrc`:
+
+```bash
+export CHATT3R_LE_PEER=AA:BB:CC:DD:EE:FF
+```
+
+`chatt3r` will use direct le; `chatt3r --debug` works too. `--scan-only`,
+`--doctor`, `--build`, and an explicit `--direct-le` still do what you ask.
+this setting is only on your machine, not in the git repo.
 
 ## commands inside chat
 

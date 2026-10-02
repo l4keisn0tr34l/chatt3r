@@ -17,6 +17,8 @@ usage() {
         'chatt3r --help                   this cheat sheet' \
         'chatt3r --name laptop            pick your nickname' \
         'chatt3r --scan-only --scan-seconds 30    scan without connecting' \
+        'chatt3r --direct-le <phone-address>   linux LE-only recovery for a known phone' \
+        'CHATT3R_LE_PEER=<phone-address> chatt3r    use that phone by default (local setting)' \
         'chatt3r --doctor                 check the laptop adapter; changes nothing' \
         'chatt3r --build                  rebuild only, then exit' \
         '' \
@@ -76,6 +78,21 @@ esac
 
 if [[ ! -x "$bin" ]]; then
     build
+fi
+
+# An explicitly configured, known phone can use direct LE by default. Never
+# infer an address from names or nearby devices, and let explicit CLI choices
+# (including scan-only) override this local setting.
+if [[ -n "${CHATT3R_LE_PEER:-}" ]]; then
+    use_direct=1
+    for arg in "$@"; do
+        case "$arg" in
+            --direct-le|--scan-only|--help|-h) use_direct=0; break ;;
+        esac
+    done
+    if [[ $use_direct -eq 1 ]]; then
+        exec "$bin" --write-limit 128 --direct-le "$CHATT3R_LE_PEER" "$@"
+    fi
 fi
 
 # keep stdin/stdout attached to your terminal so colors and draft editing work.

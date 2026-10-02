@@ -1,13 +1,16 @@
 //! Minimal hardware interoperability harness, not a full BitChat client.
 #[path = "../baseline/discovery.rs"]
 mod discovery;
+#[cfg(target_os = "linux")]
+#[path = "../baseline/linux_att.rs"]
+mod linux_att;
 #[path = "../baseline/protocol.rs"]
 mod protocol;
 #[path = "../baseline/ui.rs"]
 mod ui;
 
 use btleplug::api::{
-    Central, CentralEvent, CharPropFlags, Characteristic, Manager as _, Peripheral as _,
+    BDAddr, Central, CentralEvent, CharPropFlags, Characteristic, Manager as _, Peripheral as _,
     ScanFilter, ValueNotification, WriteType,
 };
 use btleplug::platform::{Adapter, Manager, Peripheral};
@@ -34,6 +37,7 @@ struct Options {
     write_limit: Option<usize>,
     scan_only: bool,
     scan_seconds: u64,
+    direct_le: Option<BDAddr>,
     debug: bool,
 }
 
@@ -43,6 +47,7 @@ fn options() -> Result<Option<Options>> {
         write_limit: None,
         scan_only: false,
         scan_seconds: 30,
+        direct_le: None,
         debug: false,
     };
     let mut args = std::env::args().skip(1);
@@ -53,6 +58,7 @@ fn options() -> Result<Option<Options>> {
                     "chatt3r — experimental BitChat BLE public-text baseline\n\
 Usage: chatt3r --write-limit <bytes> [--name <nickname>] [--debug]\n\
        chatt3r --scan-only [--scan-seconds <seconds>]\n\
+       chatt3r --direct-le <phone-address> [--debug] (linux LE-only link)\n\
 --write-limit: operator-provided characteristic value limit, NOT measured MTU (36..512).\n\
 Short public messages only (99 UTF-8 bytes). No confidentiality, DMs, files or relaying.\n\
 Keep stock BitChat open on iPhone in the Bluetooth/mesh public room.\n\
@@ -70,12 +76,18 @@ Arrow keys edit/recall input; incoming messages preserve your draft. NO_COLOR di
                 options.scan_seconds = args.next().ok_or("missing scan duration")?.parse()?
             }
             "--scan-only" => options.scan_only = true,
+            "--direct-le" => {
+                options.direct_le = Some(args.next().ok_or("missing LE phone address")?.parse()?)
+            }
             "--debug" | "-d" => options.debug = true,
             _ => return Err(format!("unknown argument: {arg}; use --help").into()),
         }
     }
     if options.name.is_empty() || options.name.len() > 24 {
         return Err("nickname must be 1..24 UTF-8 bytes".into());
+    }
+    if options.direct_le.is_some() && options.scan_only {
+        return Err("--direct-le connects; it cannot be combined with --scan-only".into());
     }
     if !(1..=300).contains(&options.scan_seconds) {
         return Err("scan seconds must be 1..300".into());
@@ -164,9 +176,46 @@ async fn discover(
     }
 }
 
+enum LinkWriter<'a> {
+    BlueZ(&'a Peripheral, &'a Characteristic),
+    #[cfg(target_os = "linux")]
+    Direct(std::sync::Arc<linux_att::DirectAtt>),
+}
+
+impl LinkWriter<'_> {
+    async fn connected(&self) -> Result<bool> {
+        match self {
+            LinkWriter::BlueZ(peripheral, _) => Ok(peripheral.is_connected().await?),
+            #[cfg(target_os = "linux")]
+            LinkWriter::Direct(link) => Ok(link.is_connected()),
+        }
+    }
+    fn write_limit(&self, configured: usize) -> usize {
+        match self {
+            LinkWriter::BlueZ(_, _) => configured,
+            #[cfg(target_os = "linux")]
+            LinkWriter::Direct(link) => configured.min(link.max_value()),
+        }
+    }
+    async fn write(&self, frame: &[u8]) -> Result<()> {
+        match self {
+            LinkWriter::BlueZ(peripheral, characteristic) => {
+                let write_type = if characteristic.properties.contains(CharPropFlags::WRITE) {
+                    WriteType::WithResponse
+                } else {
+                    WriteType::WithoutResponse
+                };
+                peripheral.write(characteristic, frame, write_type).await?;
+            }
+            #[cfg(target_os = "linux")]
+            LinkWriter::Direct(link) => link.write(frame).await?,
+        }
+        Ok(())
+    }
+}
+
 async fn send(
-    peripheral: &Peripheral,
-    characteristic: &Characteristic,
+    writer: &LinkWriter<'_>,
     packet: &Packet,
     limit: usize,
     output: &ui::Output,
@@ -178,20 +227,12 @@ async fn send(
         packet.payload.len(),
         frames.len()
     ))?;
-    let write_type = if characteristic.properties.contains(CharPropFlags::WRITE) {
-        WriteType::WithResponse
-    } else {
-        WriteType::WithoutResponse
-    };
     for frame in frames {
-        timeout(
-            Duration::from_secs(10),
-            peripheral.write(characteristic, &frame, write_type),
-        )
-        .await?
-        .map_err(|e| {
-            format!("BLE write failed: {e}; check link and --write-limit (not measured MTU)")
-        })?;
+        timeout(Duration::from_secs(10), writer.write(&frame))
+            .await?
+            .map_err(|e| {
+                format!("BLE write failed: {e}; check link and --write-limit (not measured MTU)")
+            })?;
         sleep(Duration::from_millis(20)).await;
     }
     Ok(()) // GATT success is not a remote message delivery acknowledgement.
@@ -449,23 +490,34 @@ async fn connect_with_retry(peripheral: &Peripheral, debug: bool) -> Result<Read
     .await
 }
 
-async fn chat(peripheral: &Peripheral, link: ReadyLink, options: &Options) -> Result<()> {
-    let (characteristic, mut notifications) = link;
-    let characteristic = &characteristic;
+async fn chat(
+    writer: LinkWriter<'_>,
+    mut notifications: BoxStream<'static, ValueNotification>,
+    options: &Options,
+) -> Result<()> {
     let secret = StaticSecret::random_from_rng(OsRng);
     let noise_public = PublicKey::from(&secret).to_bytes();
     let local = protocol::peer_id(&noise_public);
     let signing = SigningKey::generate(&mut OsRng);
     let announce_payload =
         protocol::announcement(&options.name, &noise_public, &signing.verifying_key())?;
-    let limit = options.write_limit.unwrap();
+    let limit = writer.write_limit(options.write_limit.unwrap());
     if options.debug {
         println!(
             "[identity] {} ({}) — ephemeral for this run",
             display(&options.name),
             hex::encode(local)
         );
-        println!("[ble] configured write limit={limit} bytes; negotiated MTU unknown");
+        match &writer {
+            LinkWriter::BlueZ(_, _) => {
+                println!("[ble] configured write limit={limit} bytes; negotiated MTU unknown")
+            }
+            #[cfg(target_os = "linux")]
+            LinkWriter::Direct(link) => println!(
+                "[ble] configured write limit={limit} bytes; negotiated ATT MTU={} bytes",
+                link.max_value() + 3
+            ),
+        }
     }
     println!(
         "Connected as {}. Public chat — not encrypted; max {MAX_PAYLOAD} UTF-8 bytes.",
@@ -481,8 +533,7 @@ async fn chat(peripheral: &Peripheral, link: ReadyLink, options: &Options) -> Re
     let mut initial_announce = Packet::new(ANNOUNCE, local, now_ms(), announce_payload.clone());
     initial_announce.sign(&signing)?;
     send(
-        peripheral,
-        characteristic,
+        &writer,
         &initial_announce,
         limit,
         &ui::Output::plain(options.debug),
@@ -497,12 +548,12 @@ async fn chat(peripheral: &Peripheral, link: ReadyLink, options: &Options) -> Re
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
             _ = link_tick.tick() => {
-                if !peripheral.is_connected().await? { return Err("BLE disconnected; rerun to reconnect".into()); }
+                if !writer.connected().await? { return Err("BLE disconnected; rerun to reconnect".into()); }
             }
             _ = announce_tick.tick() => {
                 let mut packet = Packet::new(ANNOUNCE, local, now_ms(), announce_payload.clone());
                 packet.sign(&signing)?;
-                send(peripheral, characteristic, &packet, limit, &output).await?;
+                send(&writer, &packet, limit, &output).await?;
             }
             line = input.next_line() => {
                 let Some(line) = line? else { break; };
@@ -526,7 +577,7 @@ async fn chat(peripheral: &Peripheral, link: ReadyLink, options: &Options) -> Re
                 let sent_text = display(&line);
                 let mut packet = Packet::new(MESSAGE, local, now_ms(), line.into_bytes());
                 packet.sign(&signing)?;
-                send(peripheral, characteristic, &packet, limit, &output).await?;
+                send(&writer, &packet, limit, &output).await?;
                 output.line(&format!("[{}] {sent_text}", output.own()))?;
                 output.diagnostic("[tx] GATT write complete; verify receipt on iPhone (no application ACK).")?;
             }
@@ -540,7 +591,7 @@ async fn chat(peripheral: &Peripheral, link: ReadyLink, options: &Options) -> Re
     }
     let mut leave = Packet::new(LEAVE, local, now_ms(), vec![]);
     leave.sign(&signing)?;
-    let _ = send(peripheral, characteristic, &leave, limit, &output).await;
+    let _ = send(&writer, &leave, limit, &output).await;
     Ok(())
 }
 
@@ -549,6 +600,36 @@ async fn main() -> Result<()> {
     let Some(options) = options()? else {
         return Ok(());
     };
+    #[cfg(not(target_os = "linux"))]
+    if options.direct_le.is_some() {
+        return Err("--direct-le is Linux-only".into());
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(address) = options.direct_le {
+        if options.debug {
+            println!("[ble] direct LE ATT for {address}; no BlueZ profile auto-connect, pairing unchanged");
+        }
+        let link =
+            linux_att::DirectAtt::connect(address.into_inner(), SERVICE, CHARACTERISTIC).await?;
+        if options.debug {
+            println!("[ble] direct LE connected, GATT verified, notifications enabled; negotiated ATT MTU allows {}-byte frames", link.max_value());
+        }
+        let receiver = link.take_notifications().await?;
+        let notifications: BoxStream<'static, ValueNotification> =
+            futures::stream::unfold(receiver, |mut rx| async move {
+                rx.recv().await.map(|value| {
+                    (
+                        ValueNotification {
+                            uuid: CHARACTERISTIC,
+                            value,
+                        },
+                        rx,
+                    )
+                })
+            })
+            .boxed();
+        return chat(LinkWriter::Direct(link), notifications, &options).await;
+    }
     if options.debug {
         println!("[debug] BLE diagnostics enabled; --help prints usage");
     }
@@ -624,7 +705,14 @@ async fn main() -> Result<()> {
             }
         }
         let result = match connection {
-            Ok(link) => chat(&peripheral, link, &options).await,
+            Ok((characteristic, notifications)) => {
+                chat(
+                    LinkWriter::BlueZ(&peripheral, &characteristic),
+                    notifications,
+                    &options,
+                )
+                .await
+            }
             Err(error) => Err(error),
         };
         let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;

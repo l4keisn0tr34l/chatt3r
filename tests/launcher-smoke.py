@@ -53,6 +53,7 @@ print('fake adapter state')
     doctor.chmod(0o755)
     env = dict(os.environ, PATH=f"{tools}:/usr/bin:/bin", TRACE=str(trace), FAKE_APP=app,
                CARGO_TARGET_DIR=str(root / "wrong target"))
+    env.pop("CHATT3R_LE_PEER", None)  # tests must not inherit the operator's phone
 
     def calls():
         return [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
@@ -65,10 +66,24 @@ print('fake adapter state')
         return result
 
     for args in [(), ("--debug",), ("--name", "my laptop"),
-                 ("--write-limit", "64"), ("--scan-only", "--scan-seconds", "30")]:
+                 ("--write-limit", "64"), ("--scan-only", "--scan-seconds", "30"),
+                 ("--direct-le", "AA:BB:CC:DD:EE:FF", "--debug")]:
         record = json.loads(run(*args).stdout)
         assert record["args"] == ["--write-limit", "128", *args], record
         assert record["stdin"] == "draft\n", record
+    env["CHATT3R_LE_PEER"] = "AA:BB:CC:DD:EE:FF"
+    for args, expected in [
+        (("--debug",), ["--direct-le", "AA:BB:CC:DD:EE:FF", "--debug"]),
+        (("--debug", "--scan-only"), ["--debug", "--scan-only"]),
+        (("--direct-le", "11:22:33:44:55:66"), ["--direct-le", "11:22:33:44:55:66"]),
+    ]:
+        record = json.loads(run(*args).stdout)
+        assert record["args"] == ["--write-limit", "128", *expected], record
+    before = len(calls())
+    assert "cheat sheet" in run("--help").stdout
+    run("--doctor")
+    run("--build")
+    env.pop("CHATT3R_LE_PEER")
     before = len(calls())
     assert "cheat sheet" in run("--help").stdout
     assert len(calls()) == before, "help must not build or access bluetooth"

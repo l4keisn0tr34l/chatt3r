@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 tokio = { version = "1", features = ["full", "process"] }
 btleplug = "0.11"
+libc = "0.2" # linux direct LE ATT socket; no bluez profile auto-connect
 rand = "0.8"
 uuid = { version = "1", features = ["v4"] }
 hex = "0.4"
