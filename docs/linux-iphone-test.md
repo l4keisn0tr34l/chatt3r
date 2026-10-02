@@ -108,6 +108,20 @@ Save:
 - Offline settings, timing, retries, disconnect/restart behavior and errors.
 - Whether all 10 exchanges passed. If not, retain failure evidence.
 
+## later direct-le recovery evidence
+
+on an app store v1.7.1 iphone, bluez's paired dual-mode identity omitted the
+bitchat uuid even though a read-only hci capture showed the iphone advertising
+it. generic `Device1.Connect()` tried hands-free/audio and failed. forced LE
+GATT discovery found the bitchat service and notify/write characteristic
+without unpairing. the opt-in linux direct le backend negotiated mtu 185,
+subscribed, sent signed packets, and received signed peer announcements and
+public text from the nickname `android`. the user confirmed that nickname is
+their iphone and that **text worked in both directions with the iphone fully
+offline**. raw captures were deleted. this is user-confirmed physical evidence;
+precise switch settings, a numbered repeated run, and reconnection-after-range
+still need recording. see [direct-le.md](direct-le.md).
+
 ## Local scan already performed
 
 Command (normal user, no sudo):

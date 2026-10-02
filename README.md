@@ -16,15 +16,17 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | linux ↔ stock iphone bitchat text | user-confirmed on real devices |
 | quiet chat, colored nicknames, editable input | implemented; terminal-tested |
 | startup reconnect attempts | up to three per candidate; retry logic unit-tested |
-| known dual-mode phone whose bluez profile hides bitchat | explicit linux `--direct-le` path; signed peer announcement hardware-tested, text pending |
+| known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
 | longer text / compression | not supported yet; max 99 utf-8 bytes |
 | photos, voice notes, arbitrary files | not supported by chatt3r yet |
 | private/encrypted messages | not supported yet |
 | windows and laptop ↔ laptop | not tested / not implemented yet |
 
-repeated tests with wifi and cellular disabled still need to be recorded.
-automatic recovery from a cold notification subscription or a missing app
-service is not yet physically validated. this isn't a finished, guaranteed-reliable file-sharing app.
+the user confirmed an iphone ↔ linux text exchange on the direct le path with
+the iphone offline. exact wifi/cellular switch states, multiple repetitions,
+and background startup recovery still need a recorded test. automatic recovery
+from a cold notification subscription or a missing app service on the **default**
+bluez path is not yet physically validated. this isn't a finished, guaranteed-reliable file-sharing app.
 
 ## get it running
 

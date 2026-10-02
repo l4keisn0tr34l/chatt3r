@@ -63,7 +63,8 @@ gatt discovery/mtu/notification handling. it is not portable to windows.
 
 **easy to misunderstand:** bluez's `connected: yes` or the terminal's `[you]`
 are not delivery receipts. a signed peer announce proves a packet was received
-and verified, but does not yet prove your outgoing text appeared on the phone.
+and verified; the separate user observation of iphone-screen text is the
+evidence for outgoing message delivery.
 the user confirmed `android` is their iphone's chosen BitChat nickname. no
 message is replayed after disconnect.
 
@@ -74,13 +75,13 @@ and received repeated signed `android` peer announcements; `/peers` listed it,
 `/quit` exited cleanly, and bluez eventually showed disconnected while still
 paired. the local launcher can use `CHATT3R_LE_PEER` for a one-word command;
 that address is kept in the operator's shell config, not committed. a later
-user terminal log shows `[you] yo`, a signed `[android] yo
-works right` reply, and `[you] yea`. this confirms iphone → linux text and
-linux gatt writes. **linux → iphone display still needs explicit user
-confirmation** before claiming new-backend text is bidirectional. out-of-range
-reconnect is still manual:
-restart the client after the phone is back. the next milestone is a physical
-linux ↔ iphone text exchange followed by a no-unpairing range/reconnect test.
+user terminal log shows `[you] yo`, a signed `[android] yo works right` reply,
+and `[you] yea`. the user subsequently confirmed **both directions work,
+including a fully offline iphone run**. this is user-confirmed physical
+bidirectional text on the new backend, not merely a completed GATT write.
+exact radio-switch settings and repetitions have not been recorded.
+out-of-range reconnect still requires restarting the client; the next
+milestone is a no-unpairing range/reconnect test.
 
 **what to understand before proceeding:** roles and pairing are separate. the
 iphone can advertise and accept a temporary le/gatt link without an ios

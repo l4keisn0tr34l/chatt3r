@@ -286,8 +286,10 @@ sent an announcement and received multiple verified signed `android` peer
 announcements. `/peers` listed it and `/quit` closed the link, while the pairing
 remained intact. A later user terminal log shows a signed `[android] yo works
 right` reply and successful Linux GATT writes; the user confirmed `android`
-is their iphone nickname. Linux → iphone **display** still needs explicit user
-confirmation before claiming bidirectional text on the new backend. The raw HCI/strace files were deleted.
+is their iphone nickname and then explicitly reported **both directions working
+while the iphone was offline**. This is user-confirmed new-backend bidirectional
+text, not an inferred GATT delivery receipt. Exact wifi/cellular settings,
+repeated offline counts, and reconnect-after-range remain unrecorded. The raw HCI/strace files were deleted.
 See [docs/direct-le.md](direct-le.md) for the architecture checkpoint and
 limitations. The default btleplug central path stays unchanged; Linux-only
 `--direct-le <address>` explicitly selects the new backend.
