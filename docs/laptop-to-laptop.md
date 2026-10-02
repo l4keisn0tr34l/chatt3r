@@ -1,6 +1,9 @@
 # laptop ↔ laptop: remove the phone dependency
 
-status: **investigation/design, not implemented**. linux ↔ stock iphone public text
+status: **advertising/GATT server not implemented**. a software-only test now
+runs two peer identities through existing signed announcements, fragmentation,
+message validation and duplicate suppression in both directions; it does not
+use BLE. linux ↔ stock iphone public text
 is user-confirmed bidirectional and offline. two laptops running the current
 client cannot yet discover one another: both only scan/connect as BLE centrals.
 bluetooth does **not** inherently require an iphone or manual settings pairing.
@@ -81,7 +84,8 @@ before promising resumed chat or files.
 3. deliver one write into the server and one notification back. test service
    discovery, characteristic properties and subscription lifecycle.
 4. route the existing signed text frames through that backend; test both
-   directions, malformed frames and disconnect handling.
+   directions, malformed frames and disconnect handling. a **software-only**
+   two-peer codec/receiver test already passes; the BLE transport is missing.
 5. exercise simultaneous discovery/two-link races; implement the explicit
    tie-break above with physical evidence and tests. then investigate the
    Windows peripheral/server APIs separately.

@@ -253,6 +253,16 @@ struct Receiver {
 }
 
 impl Receiver {
+    fn new(local: [u8; 8]) -> Self {
+        Self {
+            local,
+            assembler: Reassembler::default(),
+            peers: HashMap::new(),
+            seen: HashSet::new(),
+            order: VecDeque::new(),
+        }
+    }
+
     fn receive(&mut self, bytes: &[u8], output: &ui::Output) -> Result<()> {
         // This narrow harness doesn't decode or negotiate Noise/sync/media traffic.
         if bytes.len() >= 2 && !matches!(bytes[1], ANNOUNCE | MESSAGE | LEAVE | FRAGMENT) {
@@ -529,13 +539,7 @@ async fn chat(
         "Connected as {}. Public chat — not encrypted; max {MAX_PAYLOAD} UTF-8 bytes.",
         display(&options.name)
     );
-    let mut receiver = Receiver {
-        local,
-        assembler: Reassembler::default(),
-        peers: HashMap::new(),
-        seen: HashSet::new(),
-        order: VecDeque::new(),
-    };
+    let mut receiver = Receiver::new(local);
     let mut initial_announce = Packet::new(ANNOUNCE, local, now_ms(), announce_payload.clone());
     initial_announce.sign(&signing)?;
     send(
@@ -947,6 +951,56 @@ mod tests {
         );
         assert_eq!(attempts.get(), 1);
         assert_eq!(resets.get(), 0); // scanner owns the per-peer disconnect in this case
+    }
+
+    #[test]
+    fn two_simulated_peers_exchange_signed_text_over_fragmented_frames() {
+        // This drives the real chat receiver and protocol codec, not the BLE
+        // backend. It does NOT prove that two laptops can advertise/connect.
+        fn deliver(receiver: &mut Receiver, packet: &Packet, output: &ui::Output) {
+            for frame in protocol::frames(packet, 64).unwrap() {
+                receiver.receive(&frame, output).unwrap();
+            }
+        }
+        let output = ui::Output::plain(false);
+        let key_a = SigningKey::from_bytes(&[3; 32]);
+        let key_b = SigningKey::from_bytes(&[4; 32]);
+        let noise_a = [7; 32];
+        let noise_b = [8; 32];
+        let id_a = protocol::peer_id(&noise_a);
+        let id_b = protocol::peer_id(&noise_b);
+        let mut a = Receiver::new(id_a);
+        let mut b = Receiver::new(id_b);
+        for (name, noise, id, key, remote) in [
+            ("laptop-a", noise_a, id_a, &key_a, &mut b),
+            ("laptop-b", noise_b, id_b, &key_b, &mut a),
+        ] {
+            let mut announce = Packet::new(
+                ANNOUNCE,
+                id,
+                now_ms(),
+                protocol::announcement(name, &noise, &key.verifying_key()).unwrap(),
+            );
+            announce.sign(key).unwrap();
+            deliver(remote, &announce, &output); // 64-byte frames require fragmentation
+            assert_eq!(remote.peers.get(&id).unwrap().0, name);
+        }
+        let mut from_a = Packet::new(MESSAGE, id_a, now_ms(), b"hello from a".to_vec());
+        from_a.sign(&key_a).unwrap();
+        deliver(&mut b, &from_a, &output);
+        deliver(&mut b, &from_a, &output); // duplicate delivery is not printed twice
+        assert_eq!(b.seen.len(), 1);
+        let mut from_b = Packet::new(MESSAGE, id_b, now_ms(), b"hello from b".to_vec());
+        from_b.sign(&key_b).unwrap();
+        deliver(&mut a, &from_b, &output);
+        assert_eq!(a.seen.len(), 1);
+        let mut tampered = from_a.clone();
+        tampered.payload = b"modified by relay".to_vec();
+        assert!(b.receive(&tampered.encode().unwrap(), &output).is_err());
+        let unsigned = Packet::new(MESSAGE, id_b, now_ms(), b"unsigned".to_vec());
+        assert!(a.receive(&unsigned.encode().unwrap(), &output).is_err());
+        assert_eq!(a.seen.len(), 1);
+        assert_eq!(b.seen.len(), 1);
     }
 
     #[test]

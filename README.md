@@ -224,11 +224,14 @@ python3 tests/launcher-smoke.py
 python3 desktop/bitchat-terminal/tests/ui-smoke.py
 ```
 
-currently: 30 passing unit tests, launcher tests with fake tools, and four linux
+currently: 31 passing unit tests, launcher tests with fake tools, and four linux
 pty cases for draft redraw, colors, and exit/terminal restoration. two interactive
 tests are skipped in the normal unit run and exercised by the pty script.
 
-software tests aren't a substitute for hardware tests. the repeatable physical
+one unit test also simulates two signed peers exchanging fragmented public text
+without bluetooth. it exercises the shared receiver, **not** laptop ↔ laptop
+advertising or a real radio link. software tests aren't a substitute for hardware
+tests. the repeatable physical
 procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
 
 ## what's next

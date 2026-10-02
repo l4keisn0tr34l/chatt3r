@@ -298,3 +298,9 @@ known phone's GATT service. with the app closed, a physical probe saw repeated
 ATT `Attribute Not Found` replies and kept waiting; the open-app transition
 has not yet been physically confirmed. it does not start the iOS app, guarantee
 iOS background advertising, replay messages, or resume an interrupted chat.
+
+A subsequent software-only two-peer test exercises the actual short-text
+sender frames and `Receiver::receive` in both directions, with signed
+announcements, a 64-byte fragment cap, duplicate suppression, and rejection of
+tampered or unsigned text. This is unit-tested shared packet/peer behavior,
+**not** proof of laptop advertising, inbound GATT, or a physical laptop link.
