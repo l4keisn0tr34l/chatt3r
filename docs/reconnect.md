@@ -14,8 +14,9 @@ steps below are manual. the script handles starting the laptop client.
 4. leave the app visible and the phone unlocked until the laptop connects.
 5. use a short nickname like `iphone` for this early client.
 
-if it's still not showing up: fully close bitchat, toggle bluetooth off/on in
-**settings** (not just control center), then reopen bitchat.
+if it's still not showing up: fully close and reopen bitchat, return to the
+bluetooth public room, then try a longer scan. no unpairing or bluetooth reset
+is needed for this check.
 
 ## on the laptop — the usual way
 
@@ -66,12 +67,14 @@ chatt3r --debug --scan-only --scan-seconds 30
 
 what to look for:
 
-- no peer found: nothing connected. messages can't arrive yet. check the phone
-  steps above; don't treat a message typed on the phone as a successful send.
-- discovery finds the phone, but its bitchat characteristic is unavailable:
-  bluez can remember an old service uuid even when the app's service isn't ready.
-  keep/reopen the phone app in the foreground. startup retries this condition,
-  but finding a cached uuid is not proof of a working chat link.
+- no **live** peer found: nothing connected. messages can't arrive yet. check
+  the phone steps above; don't treat a message typed on the phone as a send.
+  a paired device in `bluetoothctl devices` is not a live bitchat advertisement.
+- `live bitchat candidate`, but its characteristic is unavailable: bluez may
+  remember an old service uuid even when the app's service isn't ready. the
+  client skips this address and keeps scanning for another live candidate until
+  the scan deadline. reopen the phone app in the foreground. a cached uuid is
+  not proof of a working chat link.
 - connected, but notification subscription times out: the client now retries
   setup up to three times, disconnecting only that peer between attempts. keep
   the iphone unlocked. this does not restart bluetooth or change pairings.

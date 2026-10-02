@@ -32,7 +32,7 @@ application lockfile for reproducible subsequent builds.
 - Added the isolated `src/bin/chatt3r.rs` / `src/baseline/protocol.rs` harness;
   legacy code changes are limited to fixing an existing test's misspelled
   `FLAG_HAS_CHANNEL` reference to `MSG_FLAG_HAS_CHANNEL`.
-- Final `cargo test --offline --locked` passes **20 tests** (4 legacy, 16 harness).
+- Current `cargo test --offline --locked` passes **25 tests** (4 legacy, 21 harness); 2 interactive harness tests are ignored and covered by the PTY script.
   Two terminal-only tests are skipped by the default unit run and exercised
   separately in four PTY cases by `tests/ui-smoke.py`.
   `cargo build --offline --locked --bins`, harness Clippy with `-D warnings`,
@@ -245,6 +245,17 @@ advertising/ready. This illustrates a discovery limitation: BlueZ's device UUID
 list can include cached services. The automatic recovery path is unit-tested,
 but recovery from these failures with the new helper is not yet physically
 confirmed; do not claim the latest probe established chat.
+
+A later failure report reproduced a 15-second scan with no BitChat service at
+all; the adapter was powered, while the known iPhone profile was paired but
+not connected and had no BitChat UUID. A prior connection attempt had selected
+a cached UUID and reached GATT without the BitChat characteristic. We now
+require a post-start radio event before selecting an address, prefer fresh
+addresses over cached profiles, and skip an address with a missing app
+characteristic rather than repeating setup on it. These changes passed 25 unit
+tests, launcher/PTY smoke tests, and Clippy. The rebuilt binary's 10-second
+scan still found no live peer, so phone-side advertising and successful
+connection remain unverified. No adapter reset or pairing change was made.
 
 `scripts/chatt3r` resolves paths relative to itself, supplies the operator's
 128-byte frame limit, keeps the terminal attached, and builds offline only when

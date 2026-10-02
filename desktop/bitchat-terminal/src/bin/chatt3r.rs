@@ -1,14 +1,17 @@
 //! Minimal hardware interoperability harness, not a full BitChat client.
+#[path = "../baseline/discovery.rs"]
+mod discovery;
 #[path = "../baseline/protocol.rs"]
 mod protocol;
 #[path = "../baseline/ui.rs"]
 mod ui;
 
 use btleplug::api::{
-    Central, CharPropFlags, Characteristic, Manager as _, Peripheral as _, ScanFilter,
-    ValueNotification, WriteType,
+    Central, CentralEvent, CharPropFlags, Characteristic, Manager as _, Peripheral as _,
+    ScanFilter, ValueNotification, WriteType,
 };
 use btleplug::platform::{Adapter, Manager, Peripheral};
+use discovery::{Evidence, FreshScan};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use futures::{stream::BoxStream, StreamExt};
 use protocol::{Packet, Reassembler, ANNOUNCE, FRAGMENT, LEAVE, MAX_PAYLOAD, MESSAGE};
@@ -18,7 +21,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::future::Future;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::time::{sleep, timeout, Duration};
+use tokio::time::{sleep, timeout, Duration, Instant};
 use uuid::Uuid;
 use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -106,25 +109,57 @@ fn display(text: &str) -> String {
         .collect()
 }
 
-async fn discover(adapter: &Adapter, scan_only: bool, debug: bool) -> Result<Option<Peripheral>> {
-    let mut seen = HashSet::new();
+async fn discover(
+    adapter: &Adapter,
+    events: &mut BoxStream<'_, CentralEvent>,
+    scan: &mut FreshScan<btleplug::platform::PeripheralId>,
+    scan_only: bool,
+    debug: bool,
+) -> Result<Option<Peripheral>> {
+    let mut first_match = None;
     loop {
+        // The adapter can enumerate cached profiles without hearing the phone.
+        // Only a new device or a radio update *during this scan* makes it eligible.
+        if let Ok(Some(event)) = timeout(Duration::from_millis(500), events.next()).await {
+            match event {
+                CentralEvent::DeviceDiscovered(id) => scan.observe(id, Evidence::DeviceDiscovered),
+                CentralEvent::DeviceUpdated(id)
+                | CentralEvent::ServiceDataAdvertisement { id, .. }
+                | CentralEvent::ManufacturerDataAdvertisement { id, .. } => {
+                    scan.observe(id, Evidence::RadioUpdate);
+                }
+                _ => {}
+            }
+        }
+        let mut candidates = Vec::new();
         for peripheral in adapter.peripherals().await? {
             if let Some(properties) = peripheral.properties().await? {
-                if properties.services.contains(&SERVICE) {
-                    if seen.insert(peripheral.id()) && (scan_only || debug) {
+                if let Some(rank) =
+                    scan.rank(&peripheral.id(), properties.services.contains(&SERVICE))
+                {
+                    if scan.report_once(peripheral.id()) && (scan_only || debug) {
                         println!(
-                            "[scan] BitChat service found; name={}",
+                            "[scan] live BitChat candidate; name={}",
                             display(properties.local_name.as_deref().unwrap_or("(unnamed)"))
                         );
                     }
-                    if !scan_only {
-                        return Ok(Some(peripheral));
-                    }
+                    candidates.push((rank, peripheral));
                 }
             }
         }
-        sleep(Duration::from_millis(500)).await;
+        if !scan_only {
+            candidates.sort_by_key(|(rank, _)| *rank);
+            if candidates.is_empty() {
+                first_match = None;
+            } else {
+                // Collect a short burst of updates so a cached/system profile
+                // cannot win just because its event arrived first.
+                let since = first_match.get_or_insert_with(Instant::now);
+                if since.elapsed() >= Duration::from_millis(750) {
+                    return Ok(candidates.into_iter().next().map(|(_, p)| p));
+                }
+            }
+        }
     }
 }
 
@@ -253,6 +288,7 @@ struct StartupError {
     stage: &'static str,
     cause: Box<dyn Error>,
     retryable: bool,
+    missing_service: bool,
 }
 
 impl std::fmt::Display for StartupError {
@@ -273,6 +309,7 @@ impl StartupError {
             stage: "GATT discovery",
             cause: "BitChat characteristic unavailable; keep the iPhone app open (discovery can match cached UUIDs)".into(),
             retryable: true,
+            missing_service: true,
         }
     }
 
@@ -281,6 +318,7 @@ impl StartupError {
             stage,
             cause: cause.into(),
             retryable: false,
+            missing_service: false,
         }
     }
 }
@@ -297,6 +335,7 @@ async fn startup_stage<T>(
     result.map_err(|cause| StartupError {
         stage,
         retryable: transient_connect_error(&cause),
+        missing_service: false,
         cause: cause.into(),
     })
 }
@@ -380,7 +419,7 @@ where
             Ok(link) => return Ok(link),
             Err(error) => {
                 eprintln!("[ble] startup attempt {attempt} failed: {error}");
-                if !error.retryable || attempt == 3 {
+                if error.missing_service || !error.retryable || attempt == 3 {
                     return Err(error.into());
                 }
                 // Dropping a timed-out D-Bus future doesn't cancel BlueZ. Reset
@@ -522,11 +561,17 @@ async fn main() -> Result<()> {
     if options.debug {
         println!("[ble] adapter={}", adapter.adapter_info().await?);
     }
-    adapter
-        .start_scan(ScanFilter {
-            services: vec![SERVICE],
-        })
-        .await?;
+    // Subscribe before scanning. btleplug also emits synthetic discoveries for
+    // devices already in BlueZ's cache; FreshScan ignores those until a real
+    // post-start radio update arrives.
+    let mut events = adapter.events().await?;
+    let initial = adapter.peripherals().await?.into_iter().map(|p| p.id());
+    let mut scan = FreshScan::new(initial);
+    let filter = ScanFilter {
+        services: vec![SERVICE],
+    };
+    adapter.start_scan(filter.clone()).await?;
+    let deadline = Instant::now() + Duration::from_secs(options.scan_seconds);
     if options.debug || options.scan_only {
         println!(
             "[scan] service={SERVICE}; duration={}s; no pairing required",
@@ -535,34 +580,69 @@ async fn main() -> Result<()> {
     } else {
         println!("Looking for nearby BitChat peers…");
     }
-    let discovered = tokio::select! {
-        _ = tokio::signal::ctrl_c() => Ok(None),
-        result = timeout(Duration::from_secs(options.scan_seconds), discover(&adapter, options.scan_only, options.debug)) => {
-            match result { Ok(result) => result, Err(_) => {
-                if options.debug || options.scan_only { println!("[scan] duration ended"); }
-                Ok(None)
-            } }
+    let mut last_error: Option<Box<dyn Error>> = None;
+    let mut cancelled = false;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
         }
-    };
-    adapter.stop_scan().await?;
-    let Some(peripheral) = discovered? else {
-        if !options.scan_only {
-            return Err(
-                "no BitChat peer connected; keep iPhone app open, check permissions, rerun".into(),
-            );
+        let discovered = tokio::select! {
+            _ = tokio::signal::ctrl_c() => { cancelled = true; Ok(None) },
+            result = timeout(remaining, discover(&adapter, &mut events, &mut scan, options.scan_only, options.debug)) => {
+                match result { Ok(result) => result, Err(_) => Ok(None) }
+            }
+        };
+        let peripheral = match discovered {
+            Ok(Some(peripheral)) => peripheral,
+            Ok(None) => break,
+            Err(error) => {
+                let _ = adapter.stop_scan().await;
+                return Err(error);
+            }
+        };
+        adapter.stop_scan().await?;
+        let connection = tokio::select! {
+            _ = tokio::signal::ctrl_c() => Err("connection cancelled".into()),
+            result = connect_with_retry(&peripheral, options.debug) => result,
+        };
+        if let Err(error) = &connection {
+            if error
+                .downcast_ref::<StartupError>()
+                .is_some_and(|e| e.missing_service)
+            {
+                scan.reject(peripheral.id());
+                eprintln!("[scan] this candidate has no active BitChat characteristic; looking for another live address");
+                last_error = connection.err();
+                let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
+                if Instant::now() < deadline {
+                    adapter.start_scan(filter.clone()).await?;
+                    continue;
+                }
+                break;
+            }
         }
+        let result = match connection {
+            Ok(link) => chat(&peripheral, link, &options).await,
+            Err(error) => Err(error),
+        };
+        let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
+        return result;
+    }
+    let _ = adapter.stop_scan().await;
+    if options.debug || options.scan_only {
+        println!("[scan] duration ended");
+    }
+    if cancelled {
         return Ok(());
-    };
-    let connection = tokio::select! {
-        _ = tokio::signal::ctrl_c() => Err("connection cancelled".into()),
-        result = connect_with_retry(&peripheral, options.debug) => result,
-    };
-    let result = match connection {
-        Ok(link) => chat(&peripheral, link, &options).await,
-        Err(error) => Err(error),
-    };
-    let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
-    result
+    }
+    if let Some(error) = last_error {
+        return Err(error);
+    }
+    if !options.scan_only {
+        return Err("no live BitChat peer found; keep iPhone unlocked with BitChat open in its Bluetooth public room, then rerun".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -639,6 +719,7 @@ mod tests {
                             stage: "notification subscription",
                             cause: "test failure".into(),
                             retryable,
+                            missing_service: false,
                         })
                     })
                 },
@@ -652,6 +733,34 @@ mod tests {
             assert_eq!(attempts.get(), expected_attempts);
             assert_eq!(resets.get(), expected_resets);
         }
+    }
+
+    #[tokio::test]
+    async fn missing_service_returns_to_scanner_without_retrying_same_peer() {
+        let attempts = std::cell::Cell::new(0);
+        let resets = std::cell::Cell::new(0);
+        let result = retry_startup(
+            false,
+            Duration::ZERO,
+            || {
+                attempts.set(attempts.get() + 1);
+                std::future::ready(Err::<(), _>(StartupError::service_not_ready()))
+            },
+            || {
+                resets.set(resets.get() + 1);
+                std::future::ready(())
+            },
+        )
+        .await;
+        assert!(
+            result
+                .unwrap_err()
+                .downcast_ref::<StartupError>()
+                .unwrap()
+                .missing_service
+        );
+        assert_eq!(attempts.get(), 1);
+        assert_eq!(resets.get(), 0); // scanner owns the per-peer disconnect in this case
     }
 
     #[test]

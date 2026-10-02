@@ -15,15 +15,15 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | --- | --- |
 | linux ↔ stock iphone bitchat text | user-confirmed on real devices |
 | quiet chat, colored nicknames, editable input | implemented; terminal-tested |
-| startup reconnect attempts | up to three; retry logic unit-tested |
+| startup reconnect attempts | up to three per candidate; retry logic unit-tested |
 | longer text / compression | not supported yet; max 99 utf-8 bytes |
 | photos, voice notes, arbitrary files | not supported by chatt3r yet |
 | private/encrypted messages | not supported yet |
 | windows and laptop ↔ laptop | not tested / not implemented yet |
 
 repeated tests with wifi and cellular disabled still need to be recorded.
-automatic recovery from a cold notification subscription is not yet physically
-validated. this isn't a finished, guaranteed-reliable file-sharing app.
+automatic recovery from a cold notification subscription or a missing app
+service is not yet physically validated. this isn't a finished, guaranteed-reliable file-sharing app.
 
 ## get it running
 
@@ -165,15 +165,16 @@ chatt3r --debug --scan-seconds 90
 
 | symptom | what it means / what to try |
 | --- | --- |
-| no bitchat peer connected | no chat link exists; check permissions and keep the phone app visible |
-| bitchat characteristic unavailable | discovery may have matched a cached uuid; reopen the phone app |
+| no live bitchat peer found | no chat link exists; keep the phone app visible in its bluetooth public room |
+| bitchat characteristic unavailable | a live address may carry a cached uuid; the client skips it and looks for another |
 | notification subscription times out | setup retries up to three times; keep the iphone unlocked |
 | connected, but waiting for an announcement | wait for a peer; try a short iphone nickname and inspect debug logs |
 | chat disconnects | quit/restart; live-session recovery isn't implemented yet |
 | text is rejected | check the byte limit and the debug rejection reason |
 
 startup retries disconnect only the selected peer, not the adapter, and don't
-change pairings. permission failures and unsupported characteristic properties
+change pairings. cached devices are ignored until live scan evidence arrives;
+missing-service candidates are skipped rather than retried on the same address. permission failures and unsupported characteristic properties
 are not retried. chat messages are **never automatically replayed**.
 
 finding a service uuid isn't enough: wait for a peer announcement. in debug mode,
@@ -215,7 +216,7 @@ python3 tests/launcher-smoke.py
 python3 desktop/bitchat-terminal/tests/ui-smoke.py
 ```
 
-currently: 20 passing unit tests, launcher tests with fake tools, and four linux
+currently: 25 passing unit tests, launcher tests with fake tools, and four linux
 pty cases for draft redraw, colors, and exit/terminal restoration. two interactive
 tests are skipped in the normal unit run and exercised by the pty script.
 
