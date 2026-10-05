@@ -15,7 +15,7 @@ use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattServiceProviderAdvertisementStatus as AdStatus,
     GattServiceProviderAdvertisementStatusChangedEventArgs,
     GattServiceProviderAdvertisingParameters, GattSubscribedClient, GattWriteOption,
-    GattWriteRequestedEventArgs,
+    GattWriteRequest, GattWriteRequestedEventArgs,
 };
 use windows::Devices::Bluetooth::{BluetoothAdapter, BluetoothError};
 use windows::Foundation::{Deferral, TypedEventHandler};
@@ -88,6 +88,15 @@ fn device_id(client: &GattSubscribedClient) -> windows::core::Result<String> {
     Ok(client.Session()?.DeviceId()?.Id()?.to_string())
 }
 
+// Report only the rejection category, never the remote device id or text.
+fn reject_write(request: &GattWriteRequest, code: u8, reason: &str) -> windows::core::Result<()> {
+    eprintln!("[host] inbound write rejected: {reason} (ATT 0x{code:02x})");
+    if request.Option()? == GattWriteOption::WriteWithResponse {
+        request.RespondWithProtocolError(code)?;
+    }
+    Ok(())
+}
+
 // A single worker preserves write/fragment order. Never block the WinRT event
 // callback on an async request; keep the event alive with its deferral.
 fn process_write(
@@ -100,31 +109,38 @@ fn process_write(
     let request = args.GetRequestAsync()?.get()?;
     let client = sole_client(characteristic)?;
     let sender = args.Session()?.DeviceId()?.Id()?.to_string();
-    let authorized = !lost.load(Ordering::SeqCst)
-        && client
-            .as_ref()
-            .is_some_and(|c| device_id(c).is_ok_and(|id| id == sender))
-        && chosen
-            .lock()
-            .unwrap()
-            .as_ref()
-            .is_none_or(|id| id == &sender);
+    if lost.load(Ordering::SeqCst) {
+        return reject_write(&request, 0x03, "subscription changed; rerun the host");
+    }
+    let Some(client) = client else {
+        return reject_write(&request, 0x03, "expected exactly one subscribed central");
+    };
+    if device_id(&client)? != sender {
+        return reject_write(&request, 0x03, "writer is not the subscribed central");
+    }
+    if chosen
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|id| id != &sender)
+    {
+        return reject_write(&request, 0x03, "writer is not the selected central");
+    }
+    if request.Offset()? != 0 {
+        return reject_write(&request, 0x07, "nonzero write offset");
+    }
     let value = request.Value()?;
     let length = value.Length()?;
-    if !authorized || request.Offset()? != 0 || !(1..=512).contains(&length) {
-        if request.Option()? == GattWriteOption::WriteWithResponse {
-            request.RespondWithProtocolError(0x11)?; // ATT insufficient resources
-        }
-        return Ok(());
+    if !(1..=512).contains(&length) {
+        return reject_write(&request, 0x0d, "empty or oversized frame");
     }
-    let frame = bytes(&value)?;
-    if incoming.try_send(frame).is_err() {
-        if request.Option()? == GattWriteOption::WriteWithResponse {
-            request.RespondWithProtocolError(0x11)?;
-        }
-    } else if request.Option()? == GattWriteOption::WriteWithResponse {
+    if incoming.try_send(bytes(&value)?).is_err() {
+        return reject_write(&request, 0x11, "inbound frame queue full or closed");
+    }
+    if request.Option()? == GattWriteOption::WriteWithResponse {
         request.Respond()?;
     }
+    eprintln!("[host] inbound GATT frame queued: {length} bytes");
     Ok(())
 }
 
@@ -230,8 +246,10 @@ impl GattHost {
                         let same = sole_client(sender)?.is_some_and(|client| {
                             device_id(&client).is_ok_and(|id| id == original)
                         });
-                        if !same {
-                            event_lost.store(true, Ordering::SeqCst);
+                        if !same && !event_lost.swap(true, Ordering::SeqCst) {
+                            eprintln!(
+                                "[host] subscription changed; refusing to switch central peers"
+                            );
                         }
                     }
                 }

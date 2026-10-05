@@ -3,8 +3,12 @@
 status: **native windows GATT server backend implemented, Windows-target
 compile-checked; hardware link untested.** `chatt3r --host` advertises the
 BitChat service, receives characteristic writes and sends notifications.
-Linux can scan/connect as a central. no Windows advertisement has yet been
-seen by the laptop; no real two-desktop packet exchange is confirmed. windows →
+Linux can scan/connect as a central. **next hardware checkpoint:** the laptop
+saw two unnamed live BitChat candidates, connected to one, discovered the
+notify/write characteristic and subscribed. its **first signed announcement
+write failed with ATT `0x11`**; no two-desktop packet exchange is confirmed.
+the Windows host console output is still needed to establish whether this
+candidate was the PC rather than the other advertising device. windows →
 stock iphone text is user-confirmed; iphone → windows is not separately
 confirmed. linux ↔ iphone is user-confirmed bidirectional and offline. a
 software-only test covers signed two-peer text, fragmentation, rejection and
@@ -95,9 +99,15 @@ before promising resumed chat or files.
    `CHATT3R_LE_PEER= ./scripts/chatt3r --scan-only --scan-seconds 30`. confirm
    an actual BitChat service radio update from the Windows PC. see
    [windows.md](windows.md) for the complete two-machine run.
-3. connect Linux as central. check service discovery, characteristic properties,
-   notification subscription and a central write plus Windows notification.
-   collect both debug logs and verify signed `hi` text on both terminals.
+3. connect Linux as central. discovery and subscription have been observed on
+   one of two unnamed candidates, but the first announcement write returned
+   ATT `0x11`. check whether the Windows console printed `Linux subscribed`;
+   otherwise the Linux client may have chosen the phone. with the phone app
+   closed, collect both debug logs. the Windows host now logs rejection
+   categories and sends distinct ATT errors for a disallowed writer (`0x03`),
+   nonzero offset (`0x07`), bad length (`0x0d`) and a full/closed queue
+   (`0x11`). only then verify a central write, Windows notification and
+   signed `hi` text on both terminals.
 4. test disconnect behavior, more than one central, malformed frames and
    message size limits. the startup retry code must never resend an ambiguous
    message. Windows host should fail closed instead of switching central peers.

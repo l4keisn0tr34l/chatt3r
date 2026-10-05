@@ -109,7 +109,16 @@ on linux, look for `connected and subscribed`, peer announcements and text on
 which arrived. `--debug` may log public message contents and peer ids.
 
 if the windows host starts but linux sees no live service, capture both debug
-logs and the adapter model. if linux sees the service but the generic BlueZ
+logs and the adapter model. if linux sees **multiple unnamed candidates**, it
+could select the iphone instead of the pc: close the iphone app (no unpairing)
+and confirm the Windows console says `Linux subscribed` before concluding the
+pc link works. one Linux hardware attempt discovered and subscribed but its
+first announcement write returned ATT `0x11`; the Windows-side result is not
+yet recorded. the host now prints **inbound write queued/rejected** with
+reasons but not remote addresses or text. `0x11` can also come from a different
+GATT server, so check both consoles before changing the frame size.
+
+if linux sees the service but the generic BlueZ
 connection picks classic/audio instead, don't unpair devices: that needs a
 separate, explicit LE-only connection test with the **pc's current LE address**,
 not the saved iphone address. ask before trying an address so we don't connect
