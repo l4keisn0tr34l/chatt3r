@@ -21,7 +21,7 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | photos, voice notes, arbitrary files | not supported by chatt3r yet |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
-| linux ↔ windows pc text | windows `--host` backend cross-compiled; real advertisement, gatt link and packets **not tested** |
+| linux ↔ windows pc text | linux subscribed to one of two unnamed candidates; first announcement write failed (`ATT 0x11`). windows host log/peer identity and two-way text **not verified** |
 
 the user confirmed an iphone ↔ linux text exchange on the direct le path with
 the iphone offline. exact wifi/cellular switch states, multiple repetitions,
@@ -33,8 +33,9 @@ bluez path is not yet physically validated. this isn't a finished, guaranteed-re
 
 these steps are for ubuntu. **windows:** see the experimental
 [windows setup and run guide](docs/windows.md); the windows gatt **host**
-hasn't been hardware-tested. windows → iphone text is user-confirmed;
-pc ↔ linux still needs a real advertisement, gatt link and two-way packet test.
+is experimental, and a pc ↔ linux signed text exchange is not yet confirmed.
+windows → iphone text is user-confirmed. for a coding-agent handoff, start at
+[AGENTS.md](AGENTS.md) and [docs/codex-handoff.md](docs/codex-handoff.md).
 
 ### 1. set up the laptop
 
@@ -245,12 +246,14 @@ procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
 
 1. **harden text:** repeated offline tests, saved preferences, reliable reconnects,
    larger-message support, and a cleaner desktop core.
-2. **remove the phone dependency:** linux ↔ linux needs desktop advertising +
-   a gatt server; the adapter exposes the bluez APIs, but even a temporary
-   test advertisement currently fails registration on this controller.
-   the backend is not implemented. see
+2. **remove the phone dependency:** the experimental windows native gatt host
+   compiles and has an operator test procedure, but a linux → candidate
+   announcement write returned `ATT 0x11` after subscription and the windows
+   console log is still missing. identify which of two unnamed candidates was
+   actually contacted, resolve the failed write, and prove text both ways.
+   linux ↔ linux still needs a working advertising adapter and a linux gatt
+   server; local bluez registration fails on this controller. see
    [docs/laptop-to-laptop.md](docs/laptop-to-laptop.md).
-   then investigate windows and its separate peripheral/server APIs.
 3. **add files:** receive a small phone attachment, then verified arbitrary files.
    an iphone fork may need macos/xcode if stock ui can't expose the needed flow.
 
@@ -265,14 +268,17 @@ desktop/bitchat-terminal/            included rust source, not a submodule
   src/baseline/protocol.rs           short-text codec and fragmentation
   src/baseline/ui.rs                 line editing and peer colors
   src/baseline/linux_att.rs          opt-in linux direct le/gatt transport
+  src/baseline/windows_gatt.rs       experimental native windows gatt host
   test-vectors/                     shared packet fixtures
   tests/ui-smoke.py                  linux terminal tests
 tests/launcher-smoke.py              launcher tests without bluetooth
 docs/reconnect.md                   practical connection cheat sheet
 docs/linux-iphone-test.md            physical test procedure
 docs/upstream-analysis.md            source pins, compatibility findings
-docs/laptop-to-laptop.md             desktop peripheral plan (not shipped)
+docs/laptop-to-laptop.md             desktop host plan and evidence (link not proven)
 docs/windows.md                      experimental native windows build/run guide
+docs/codex-handoff.md                current coding-agent hardware checkpoint
+AGENTS.md                            coding-agent guardrails and entry point
 context.md                          project requirements and roadmap
 ```
 
