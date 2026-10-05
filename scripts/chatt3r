@@ -20,6 +20,7 @@ usage() {
         'chatt3r --direct-le <phone-address>   linux LE-only recovery for a known phone' \
         'chatt3r --direct-le <address> --wait-for-peer   wait before starting chat' \
         'CHATT3R_LE_PEER=<phone-address> chatt3r    use that phone by default (local setting)' \
+        'CHATT3R_LE_PEER= chatt3r --scan-seconds 90    scan for a pc host instead of your saved phone' \
         'chatt3r --doctor                 check the laptop adapter; changes nothing' \
         'chatt3r --build                  rebuild only, then exit' \
         '' \
@@ -27,7 +28,7 @@ usage() {
         'this uses a 128-byte write limit, not a measured mtu. override with --write-limit.' \
         'public text only, max 99 utf-8 bytes. no files, dms, or message encryption yet.' \
         'in chat: /peers, /announce, /quit. ctrl-c or ctrl-d also exits.' \
-        'reconnect notes: docs/reconnect.md'
+        'reconnect notes: docs/reconnect.md; pc host test: docs/windows.md'
 }
 
 build() {

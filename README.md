@@ -20,7 +20,8 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | longer text / compression | not supported yet; max 99 utf-8 bytes |
 | photos, voice notes, arbitrary files | not supported by chatt3r yet |
 | private/encrypted messages | not supported yet |
-| windows and laptop ↔ laptop | not tested / not implemented yet |
+| windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
+| linux ↔ windows pc text | windows `--host` backend cross-compiled; real advertisement, gatt link and packets **not tested** |
 
 the user confirmed an iphone ↔ linux text exchange on the direct le path with
 the iphone offline. exact wifi/cellular switch states, multiple repetitions,
@@ -31,8 +32,9 @@ bluez path is not yet physically validated. this isn't a finished, guaranteed-re
 ## get it running
 
 these steps are for ubuntu. **windows:** see the experimental
-[windows setup and run guide](docs/windows.md); windows chat hasn't been
-hardware-tested and pc ↔ linux still needs an advertising/gatt-server backend.
+[windows setup and run guide](docs/windows.md); the windows gatt **host**
+hasn't been hardware-tested. windows → iphone text is user-confirmed;
+pc ↔ linux still needs a real advertisement, gatt link and two-way packet test.
 
 ### 1. set up the laptop
 
@@ -115,6 +117,7 @@ from any folder because it resolves paths relative to its own location.
 | `chatt3r --help` | print the cheat sheet; no connection |
 | `chatt3r --name laptop` | choose a nickname, max 24 utf-8 bytes |
 | `chatt3r --scan-only --scan-seconds 30` | scan without connecting or sending |
+| `CHATT3R_LE_PEER= chatt3r --debug --scan-seconds 90` | scan for a pc host instead of using this laptop's saved phone shortcut; see [windows test](docs/windows.md) |
 | `chatt3r --direct-le <phone-address>` | linux-only LE connection for a known phone when bluez picks classic/audio instead |
 | `CHATT3R_LE_PEER=<phone-address> chatt3r` | locally select that direct LE phone and wait for its app to become ready; never publish your real address |
 | `chatt3r --doctor` | inspect the laptop adapter; changes nothing |

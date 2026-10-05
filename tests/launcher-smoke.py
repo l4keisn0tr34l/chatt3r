@@ -83,6 +83,10 @@ print('fake adapter state')
     assert "cheat sheet" in run("--help").stdout
     run("--doctor")
     run("--build")
+    # Explicitly empty is the documented one-command escape from the saved phone.
+    env["CHATT3R_LE_PEER"] = ""
+    record = json.loads(run("--debug", "--scan-seconds", "90").stdout)
+    assert record["args"] == ["--write-limit", "128", "--debug", "--scan-seconds", "90"]
     env.pop("CHATT3R_LE_PEER")
     before = len(calls())
     assert "cheat sheet" in run("--help").stdout

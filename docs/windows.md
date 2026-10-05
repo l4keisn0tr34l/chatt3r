@@ -1,10 +1,10 @@
 # trying chatt3r on windows
 
-**status: experimental, not windows-hardware-tested.** these commands build and
-run the current **ble central/client** on native windows. it can *try* to find
-an advertising stock bitchat iphone, but nobody has confirmed a windows ↔
-iphone chat yet. it cannot advertise a gatt service, so this alone will **not**
-connect your windows pc to the linux laptop. please share the exact stage/error
+**status: experimental.** the user confirmed **windows → iphone** text with
+the native ble central/client; iphone → windows has not been separately
+confirmed. a new, windows-target-compile-checked `--host` gatt peripheral can
+advertise to the linux laptop, but **no real pc ↔ linux advertisement, gatt
+exchange, or text has been observed yet**. please share the exact stage/error
 rather than unpairing or assuming a successful scan means chat works.
 
 skip wsl for the first attempt: wsl2 normally doesn't expose the windows
@@ -33,9 +33,10 @@ $client = '.\desktop\bitchat-terminal\target\debug\chatt3r.exe'
 & $client --help
 ```
 
-this windows build has **not** been run here. if it fails, save the first full
-compiler error and your windows/bluetooth adapter details; don't call it a
-working windows release. `scripts/chatt3r` is a **bash/linux launcher**, not
+the central/client build worked on the user's windows pc. the new `--host`
+server build and radio behavior have **not** been tested there; a windows-target
+`cargo check` passed on linux. if it fails on your pc, save the first full
+compiler error and your windows/bluetooth adapter details. `scripts/chatt3r` is a **bash/linux launcher**, not
 a powershell script. running the binary directly needs `--write-limit` for
 chat; `128` below is an operator-selected starting limit, **not a measured mtu**.
 
@@ -66,6 +67,57 @@ finds a phone but its generic connection chooses the wrong bluetooth profile,
 we need a separate windows-specific fix; don't copy the linux pairing workaround
 or assume wsl will provide it.
 
+## laptop ↔ windows pc: try the new host role
+
+both computers need the updated commit. **windows advertises; linux scans.**
+keep the iphone out of this test. on windows, from your existing checkout in
+powershell (or repeat the clone/build setup above):
+
+```powershell
+git pull --ff-only
+cargo build --locked --manifest-path .\desktop\bitchat-terminal\Cargo.toml --bin chatt3r
+$client = '.\desktop\bitchat-terminal\target\debug\chatt3r.exe'
+& $client --host --write-limit 128 --name windows-pc --debug
+```
+
+look for `[host] windows advertising ... waiting for one linux subscriber`.
+if it fails at "adapter reports no ble peripheral role", "service creation",
+or "advertisement not usable", stop there: a working central/client does **not**
+prove peripheral support. save the exact error and adapter model; don't change
+pairings. keep this process and powershell window open during the next steps.
+
+on the **linux laptop**, from the same updated checkout:
+
+```bash
+git pull --ff-only
+./scripts/chatt3r --build
+CHATT3R_LE_PEER= ./scripts/chatt3r --scan-only --scan-seconds 30
+CHATT3R_LE_PEER= ./scripts/chatt3r --debug --scan-seconds 90 --name laptop
+```
+
+`CHATT3R_LE_PEER=` disables this laptop's **local iphone shortcut for just
+that command**; it does not erase the saved phone address or its pairing.
+the scan-only command is read-only and exits after 30 seconds. if it finds a
+live candidate with the BitChat service, run the final command while the
+windows host is still advertising. on windows, look for `linux subscribed`;
+on linux, look for `connected and subscribed`, peer announcements and text on
+**both** terminals. send a short `hi from laptop` and `hi from pc` and record
+which arrived. `--debug` may log public message contents and peer ids.
+
+if the windows host starts but linux sees no live service, capture both debug
+logs and the adapter model. if linux sees the service but the generic BlueZ
+connection picks classic/audio instead, don't unpair devices: that needs a
+separate, explicit LE-only connection test with the **pc's current LE address**,
+not the saved iphone address. ask before trying an address so we don't connect
+to the wrong device. if a subscription works but writes/notifications fail,
+try `--write-limit 36` on **both** machines on a fresh run; `128` was not a
+measured negotiation. neither machine resends possibly delivered messages
+automatically after a disconnection.
+
+this is public text, not authenticated device pairing or encryption. only
+signed peer announcements and signed text are validated at the app layer; no
+files or delivery receipts. see [laptop-to-laptop.md](laptop-to-laptop.md).
+
 ## if it doesn't build or discover
 
 ```powershell
@@ -93,15 +145,13 @@ gatt/subscription, preserve that exact error. don't remove bonds or restart
 the adapter as a first response. no automatic live-session reconnect or
 message replay is implemented.
 
-## pc ↔ linux is the next, separate feature
+## pc ↔ linux remains hardware-unverified
 
-right now **both desktops would only scan**. one must advertise the bitchat
-service and host a gatt notify/write characteristic. this linux laptop's
-realtek controller currently rejects even a temporary test advertisement;
-windows may be the better first **peripheral/server** candidate, but support
-has not been checked on your pc. a native windows backend would need windows
-ble advertising + gatt-server APIs (not the current btleplug central path),
-then use the existing shared signed packet/chat code. see
-[laptop-to-laptop.md](laptop-to-laptop.md) for the role and duplicate-link plan.
-do not call a two-laptop exchange working until it is observed on both machines
+windows `--host` now uses the native windows gatt service provider instead of
+btleplug's central path; both roles feed the same signed packet/chat code.
+this linux laptop's realtek adapter still rejects **local** advertising, but
+it can scan/connect as a central. windows peripheral capability and real
+advertising have **not been checked on the pc**. see
+[laptop-to-laptop.md](laptop-to-laptop.md) for the transport/role plan. do not
+call a two-laptop exchange working until packets appear on both machines
 without a phone.

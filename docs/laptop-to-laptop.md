@@ -1,12 +1,15 @@
 # laptop ↔ laptop: remove the phone dependency
 
-status: **advertising/GATT server not implemented**. a software-only test now
-runs two peer identities through existing signed announcements, fragmentation,
-message validation and duplicate suppression in both directions; it does not
-use BLE. linux ↔ stock iphone public text
-is user-confirmed bidirectional and offline. two laptops running the current
-client cannot yet discover one another: both only scan/connect as BLE centrals.
-bluetooth does **not** inherently require an iphone or manual settings pairing.
+status: **native windows GATT server backend implemented, Windows-target
+compile-checked; hardware link untested.** `chatt3r --host` advertises the
+BitChat service, receives characteristic writes and sends notifications.
+Linux can scan/connect as a central. no Windows advertisement has yet been
+seen by the laptop; no real two-desktop packet exchange is confirmed. windows →
+stock iphone text is user-confirmed; iphone → windows is not separately
+confirmed. linux ↔ iphone is user-confirmed bidirectional and offline. a
+software-only test covers signed two-peer text, fragmentation, rejection and
+deduplication, but it does not use BLE. bluetooth does **not** require an iphone
+or manual settings pairing.
 
 ## hardware and library check on this linux laptop
 
@@ -32,28 +35,34 @@ bluetooth does **not** inherently require an iphone or manual settings pairing.
   working LE advertising. try a separately tested adapter or a minimal BlueZ
   D-Bus registration on this one before building the full server. do not
   restart bluetooth or delete bonds just to mask this error.
-- **not measured yet:** stable advertisement visible to another linux laptop,
-  inbound GATT write/notify, concurrent scanning, or Windows peripheral APIs.
+- **not measured yet:** stable advertisement from windows seen by this laptop,
+  inbound GATT write/notify, concurrent scanning, or actual windows peripheral
+  capability. native Windows `GattServiceProvider` APIs compile-check for a
+  Windows target; that does not prove the PC adapter supports them.
 
 ## planned data flow
 
 ```text
-laptop A advertises bitchat service, hosts notify/write GATT characteristic
+windows pc advertises bitchat service, hosts notify/write GATT characteristic
        ↓ discover
-laptop B scans and connects as central
+linux laptop scans and connects as central
        ↓ write/notify over one BLE link
 existing bitchat packet validation + peer state + terminal UI on both sides
 ```
 
-bluez will need a registered D-Bus `LEAdvertisement1` object with the bitchat
-service uuid and a `GattService1`/`GattCharacteristic1` application with an
-object manager. its characteristic must receive central `WriteValue` calls,
-track `StartNotify`/`StopNotify`, and publish notifications back to subscribed
-centrals. service registration and advertisement lifetimes need explicit
-cleanup. whether to use a maintained D-Bus object-server crate or another
-peripheral library is undecided until a small working advertisement + write
-prototype is tested. no adapter daemon restart or bond removal is part of the
-normal path.
+the new windows `--host` path uses `GattServiceProvider` to advertise the
+service, owns a notify/write `GattLocalCharacteristic`, and uses a single
+ordered worker for incoming writes. it restricts the session to one subscribed
+central and uses the existing signed packet/chat validation for text. no
+automatic replay after disconnection; provider and event handler are cleaned
+up when the host exits. bluetooth device pairing is **not** an app-layer trust
+mechanism, and signed packets are not encrypted.
+
+if Windows advertising cannot run on this PC, a linux host would require a
+BlueZ D-Bus `LEAdvertisement1` and a `GattService1`/`GattCharacteristic1`
+application with an object manager, plus a working advertising adapter. the
+local Realtek registration failure remains. do not restart the adapter or
+remove a bond as the first diagnostic step.
 
 ## duplicate links and role policy (design, not shipped)
 
@@ -75,22 +84,24 @@ before promising resumed chat or files.
 
 ## next proof, in order
 
-1. first isolate this adapter's `Invalid Parameters (0x0d)` advertising
-   failure (minimal advertising data, controller/driver support, another BLE
-   dongle). once local advertising succeeds, register a linux advertisement +
-   GATT service with the BitChat UUID using BlueZ D-Bus; prove cleanup.
-2. on a **second** linux adapter, verify the actual advertisement and connect
-   without an iphone, wifi, hotspot or cable for communication.
-3. deliver one write into the server and one notification back. test service
-   discovery, characteristic properties and subscription lifecycle.
-4. route the existing signed text frames through that backend; test both
-   directions, malformed frames and disconnect handling. a **software-only**
-   two-peer codec/receiver test already passes; the BLE transport is missing.
-5. exercise simultaneous discovery/two-link races; implement the explicit
-   tie-break above with physical evidence and tests. then investigate the
-   Windows peripheral/server APIs separately.
+1. on Windows, run `chatt3r.exe --host --write-limit 128 --debug`: record
+   peripheral-role support, GATT creation and **Started** advertising status.
+   stop on a capability or advertisement error; no pairing changes.
+2. on linux, disable its local known-iphone shortcut for this command with
+   `CHATT3R_LE_PEER= ./scripts/chatt3r --scan-only --scan-seconds 30`. confirm
+   an actual BitChat service radio update from the Windows PC. see
+   [windows.md](windows.md) for the complete two-machine run.
+3. connect Linux as central. check service discovery, characteristic properties,
+   notification subscription and a central write plus Windows notification.
+   collect both debug logs and verify signed `hi` text on both terminals.
+4. test disconnect behavior, more than one central, malformed frames and
+   message size limits. the startup retry code must never resend an ambiguous
+   message. Windows host should fail closed instead of switching central peers.
+5. later: test dual-role adapters/two simultaneous links and implement the
+   authenticated stable-identity tie-break above. if Windows cannot advertise,
+   investigate an alternate BLE adapter or a Linux BlueZ server with a verified
+   advertising controller.
 
-neither the current iphone success nor this adapter's role list satisfies
-step 2. don't describe laptop ↔ laptop as working until both devices confirm
-real packets. keep the proof in this document and add an architecture checkpoint
-when the peripheral subsystem is actually implemented.
+neither the iphone success nor Windows-target compilation proves step 2/3.
+do not describe laptop ↔ laptop as working until both machines confirm real
+packets without a phone.

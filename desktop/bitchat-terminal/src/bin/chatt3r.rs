@@ -8,6 +8,9 @@ mod linux_att;
 mod protocol;
 #[path = "../baseline/ui.rs"]
 mod ui;
+#[cfg(windows)]
+#[path = "../baseline/windows_gatt.rs"]
+mod windows_gatt;
 
 use btleplug::api::{
     BDAddr, Central, CentralEvent, CharPropFlags, Characteristic, Manager as _, Peripheral as _,
@@ -36,6 +39,7 @@ struct Options {
     name: String,
     write_limit: Option<usize>,
     scan_only: bool,
+    host: bool,
     scan_seconds: u64,
     direct_le: Option<BDAddr>,
     wait_for_peer: bool,
@@ -43,16 +47,21 @@ struct Options {
 }
 
 fn options() -> Result<Option<Options>> {
+    parse_options(std::env::args().skip(1))
+}
+
+fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Options>> {
     let mut options = Options {
         name: "chatt3r-linux".into(),
         write_limit: None,
         scan_only: false,
+        host: false,
         scan_seconds: 30,
         direct_le: None,
         wait_for_peer: false,
         debug: false,
     };
-    let mut args = std::env::args().skip(1);
+    let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" | "-h" => {
@@ -60,6 +69,7 @@ fn options() -> Result<Option<Options>> {
                     "chatt3r — experimental BitChat BLE public-text baseline\n\
 Usage: chatt3r --write-limit <bytes> [--name <nickname>] [--debug]\n\
        chatt3r --scan-only [--scan-seconds <seconds>]\n\
+       chatt3r --host --write-limit <bytes> [--name <nickname>] (windows gatt server)\n\
        chatt3r --direct-le <phone-address> [--wait-for-peer] [--debug] (linux LE-only link)\n\
 --write-limit: operator-provided characteristic value limit, NOT measured MTU (36..512).\n\
 Short public messages only (99 UTF-8 bytes). No confidentiality, DMs, files or relaying.\n\
@@ -78,6 +88,7 @@ Arrow keys edit/recall input; incoming messages preserve your draft. NO_COLOR di
                 options.scan_seconds = args.next().ok_or("missing scan duration")?.parse()?
             }
             "--scan-only" => options.scan_only = true,
+            "--host" => options.host = true,
             "--direct-le" => {
                 options.direct_le = Some(args.next().ok_or("missing LE phone address")?.parse()?)
             }
@@ -94,6 +105,11 @@ Arrow keys edit/recall input; incoming messages preserve your draft. NO_COLOR di
     }
     if options.direct_le.is_some() && options.scan_only {
         return Err("--direct-le connects; it cannot be combined with --scan-only".into());
+    }
+    if options.host && (options.scan_only || options.direct_le.is_some() || options.wait_for_peer) {
+        return Err(
+            "--host cannot be combined with scanning, --direct-le or --wait-for-peer".into(),
+        );
     }
     if !(1..=300).contains(&options.scan_seconds) {
         return Err("scan seconds must be 1..300".into());
@@ -186,6 +202,8 @@ enum LinkWriter<'a> {
     BlueZ(&'a Peripheral, &'a Characteristic),
     #[cfg(target_os = "linux")]
     Direct(std::sync::Arc<linux_att::DirectAtt>),
+    #[cfg(windows)]
+    WindowsHost(std::sync::Arc<windows_gatt::GattHost>),
 }
 
 impl LinkWriter<'_> {
@@ -194,6 +212,8 @@ impl LinkWriter<'_> {
             LinkWriter::BlueZ(peripheral, _) => Ok(peripheral.is_connected().await?),
             #[cfg(target_os = "linux")]
             LinkWriter::Direct(link) => Ok(link.is_connected()),
+            #[cfg(windows)]
+            LinkWriter::WindowsHost(host) => host.connected(),
         }
     }
     fn write_limit(&self, configured: usize) -> usize {
@@ -201,6 +221,8 @@ impl LinkWriter<'_> {
             LinkWriter::BlueZ(_, _) => configured,
             #[cfg(target_os = "linux")]
             LinkWriter::Direct(link) => configured.min(link.max_value()),
+            #[cfg(windows)]
+            LinkWriter::WindowsHost(_) => configured,
         }
     }
     async fn write(&self, frame: &[u8]) -> Result<()> {
@@ -215,6 +237,8 @@ impl LinkWriter<'_> {
             }
             #[cfg(target_os = "linux")]
             LinkWriter::Direct(link) => link.write(frame).await?,
+            #[cfg(windows)]
+            LinkWriter::WindowsHost(host) => host.write(frame).await?,
         }
         Ok(())
     }
@@ -526,7 +550,13 @@ async fn chat(
         );
         match &writer {
             LinkWriter::BlueZ(_, _) => {
-                println!("[ble] configured write limit={limit} bytes; negotiated MTU unknown")
+                println!("[ble] configured frame limit={limit} bytes; negotiated MTU unknown")
+            }
+            #[cfg(windows)]
+            LinkWriter::WindowsHost(_) => {
+                println!(
+                    "[ble] configured notification limit={limit} bytes; negotiated MTU unknown"
+                )
             }
             #[cfg(target_os = "linux")]
             LinkWriter::Direct(link) => println!(
@@ -582,14 +612,14 @@ async fn chat(
                     _ if line.starts_with('/') => { output.line("Unsupported command; use /peers, /announce, /quit")?; continue; }
                     _ => {}
                 }
-                if receiver.peers.is_empty() { output.line("Waiting for a peer announcement. Keep BitChat's Bluetooth room open, then resend.")?; continue; }
+                if receiver.peers.is_empty() { output.line("Waiting for a peer announcement. Check the other peer is running, then resend.")?; continue; }
                 if line.len() > MAX_PAYLOAD { output.line(&format!("Limit: {MAX_PAYLOAD} UTF-8 bytes; longer/compressed text not implemented."))?; continue; }
                 let sent_text = display(&line);
                 let mut packet = Packet::new(MESSAGE, local, now_ms(), line.into_bytes());
                 packet.sign(&signing)?;
                 send(&writer, &packet, limit, &output).await?;
                 output.line(&format!("[{}] {sent_text}", output.own()))?;
-                output.diagnostic("[tx] GATT write complete; verify receipt on iPhone (no application ACK).")?;
+                output.diagnostic("[tx] BLE frame submitted; verify receipt on the other peer (no application ACK).")?;
             }
             notification = notifications.next() => {
                 let Some(notification) = notification else { return Err("notification stream ended; rerun to reconnect".into()); };
@@ -670,6 +700,34 @@ async fn main() -> Result<()> {
     let Some(options) = options()? else {
         return Ok(());
     };
+    #[cfg(not(windows))]
+    if options.host {
+        return Err("--host requires native Windows GATT server support".into());
+    }
+    #[cfg(windows)]
+    if options.host {
+        let (host, receiver) = windows_gatt::GattHost::start().await?;
+        println!("[host] Windows advertising BitChat GATT service; waiting for one Linux subscriber; ctrl-c cancels");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => return Ok(()),
+            result = host.wait_for_client() => result?,
+        }
+        println!("[host] Linux subscribed; exchanging signed public text frames");
+        let notifications: BoxStream<'static, ValueNotification> =
+            futures::stream::unfold(receiver, |mut rx| async move {
+                rx.recv().await.map(|value| {
+                    (
+                        ValueNotification {
+                            uuid: CHARACTERISTIC,
+                            value,
+                        },
+                        rx,
+                    )
+                })
+            })
+            .boxed();
+        return chat(LinkWriter::WindowsHost(host), notifications, &options).await;
+    }
     #[cfg(not(target_os = "linux"))]
     if options.direct_le.is_some() {
         return Err("--direct-le is Linux-only".into());
@@ -809,6 +867,24 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_mode_is_explicit_and_exclusive() {
+        let args = ["--host", "--write-limit", "128"];
+        let config = parse_options(args.into_iter().map(str::to_owned))
+            .unwrap()
+            .unwrap();
+        assert!(config.host);
+        assert!(!config.scan_only);
+        for flags in [
+            vec!["--host", "--scan-only"],
+            vec!["--host", "--direct-le", "11:22:33:44:55:66"],
+            vec!["--host", "--wait-for-peer"],
+            vec!["--host", "--write-limit", "20"],
+        ] {
+            assert!(parse_options(flags.into_iter().map(str::to_owned)).is_err());
+        }
+    }
     #[cfg(target_os = "linux")]
     #[test]
     fn direct_startup_wait_retries_only_missing_or_transient_links() {
