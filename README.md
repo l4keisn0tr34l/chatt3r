@@ -30,6 +30,10 @@ bluez path is not yet physically validated. this isn't a finished, guaranteed-re
 
 ## get it running
 
+these steps are for ubuntu. **windows:** see the experimental
+[windows setup and run guide](docs/windows.md); windows chat hasn't been
+hardware-tested and pc ↔ linux still needs an advertising/gatt-server backend.
+
 ### 1. set up the laptop
 
 on ubuntu, install [rust](https://rustup.rs) and the build/bluetooth prerequisites:
@@ -265,6 +269,7 @@ docs/reconnect.md                   practical connection cheat sheet
 docs/linux-iphone-test.md            physical test procedure
 docs/upstream-analysis.md            source pins, compatibility findings
 docs/laptop-to-laptop.md             desktop peripheral plan (not shipped)
+docs/windows.md                      experimental native windows build/run guide
 context.md                          project requirements and roadmap
 ```
 
