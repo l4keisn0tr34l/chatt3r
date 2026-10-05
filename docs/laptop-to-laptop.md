@@ -8,7 +8,8 @@ saw two unnamed live BitChat candidates, connected to one, discovered the
 notify/write characteristic and subscribed. its **first signed announcement
 write failed with ATT `0x11`**; no two-desktop packet exchange is confirmed.
 the Windows host console output is still needed to establish whether this
-candidate was the PC rather than the other advertising device. windows →
+candidate was the PC rather than the other advertising device. even a Windows
+subscription line indicates *a* central, not its authenticated identity. windows →
 stock iphone text is user-confirmed; iphone → windows is not separately
 confirmed. linux ↔ iphone is user-confirmed bidirectional and offline. a
 software-only test covers signed two-peer text, fragmentation, rejection and
@@ -101,8 +102,8 @@ before promising resumed chat or files.
    [windows.md](windows.md) for the complete two-machine run.
 3. connect Linux as central. discovery and subscription have been observed on
    one of two unnamed candidates, but the first announcement write returned
-   ATT `0x11`. check whether the Windows console printed `Linux subscribed`;
-   otherwise the Linux client may have chosen the phone. with the phone app
+   ATT `0x11`. check whether the Windows console reports `one central
+   subscribed` at the same time; otherwise Linux may have chosen the phone. with the phone app
    closed, collect both debug logs. the Windows host now logs rejection
    categories and sends distinct ATT errors for a disallowed writer (`0x03`),
    nonzero offset (`0x07`), bad length (`0x0d`) and a full/closed queue

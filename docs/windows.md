@@ -103,16 +103,17 @@ CHATT3R_LE_PEER= ./scripts/chatt3r --debug --scan-seconds 90 --name laptop
 that command**; it does not erase the saved phone address or its pairing.
 the scan-only command is read-only and exits after 30 seconds. if it finds a
 live candidate with the BitChat service, run the final command while the
-windows host is still advertising. on windows, look for `linux subscribed`;
-on linux, look for `connected and subscribed`, peer announcements and text on
+windows host is still advertising. on windows, look for `one central subscribed` (this alone does **not** prove
+which device connected); on linux, look for `connected and subscribed`, peer
+announcements and text on
 **both** terminals. send a short `hi from laptop` and `hi from pc` and record
 which arrived. `--debug` may log public message contents and peer ids.
 
 if the windows host starts but linux sees no live service, capture both debug
 logs and the adapter model. if linux sees **multiple unnamed candidates**, it
 could select the iphone instead of the pc: close the iphone app (no unpairing)
-and confirm the Windows console says `Linux subscribed` before concluding the
-pc link works. one Linux hardware attempt discovered and subscribed but its
+and correlate the Windows console's `one central subscribed` with Linux's
+connection before concluding the pc link works. one Linux hardware attempt discovered and subscribed but its
 first announcement write returned ATT `0x11`; the Windows-side result is not
 yet recorded. the host now prints **inbound write queued/rejected** with
 reasons but not remote addresses or text. `0x11` can also come from a different

@@ -712,7 +712,7 @@ async fn main() -> Result<()> {
             _ = tokio::signal::ctrl_c() => return Ok(()),
             result = host.wait_for_client() => result?,
         }
-        println!("[host] Linux subscribed; exchanging signed public text frames");
+        println!("[host] one central subscribed; exchanging signed public text frames (peer identity not yet verified)");
         let notifications: BoxStream<'static, ValueNotification> =
             futures::stream::unfold(receiver, |mut rx| async move {
                 rx.recv().await.map(|value| {
