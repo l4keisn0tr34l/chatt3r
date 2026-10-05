@@ -12,13 +12,53 @@ use windows::core::GUID;
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattCharacteristicProperties as Props, GattCommunicationStatus, GattLocalCharacteristic,
     GattLocalCharacteristicParameters, GattServiceProvider,
-    GattServiceProviderAdvertisementStatus as AdStatus, GattServiceProviderAdvertisingParameters,
-    GattSubscribedClient, GattWriteOption, GattWriteRequestedEventArgs,
+    GattServiceProviderAdvertisementStatus as AdStatus,
+    GattServiceProviderAdvertisementStatusChangedEventArgs,
+    GattServiceProviderAdvertisingParameters, GattSubscribedClient, GattWriteOption,
+    GattWriteRequestedEventArgs,
 };
 use windows::Devices::Bluetooth::{BluetoothAdapter, BluetoothError};
 use windows::Foundation::{Deferral, TypedEventHandler};
 use windows::Storage::Streams::{DataReader, DataWriter, IBuffer};
 use windows::Win32::System::WinRT::{RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED};
+
+fn ad_status(status: AdStatus) -> &'static str {
+    match status {
+        AdStatus::Created => "created",
+        AdStatus::Stopped => "stopped",
+        AdStatus::Started => "started",
+        AdStatus::Aborted => "aborted",
+        AdStatus::StartedWithoutAllAdvertisementData => "started_without_all_advertisement_data",
+        _ => "unknown",
+    }
+}
+
+fn bluetooth_error(error: BluetoothError) -> &'static str {
+    match error {
+        BluetoothError::Success => "success",
+        BluetoothError::RadioNotAvailable => "radio_not_available",
+        BluetoothError::ResourceInUse => "resource_in_use",
+        BluetoothError::DisabledByPolicy => "disabled_by_policy",
+        BluetoothError::NotSupported => "not_supported",
+        BluetoothError::DisabledByUser => "disabled_by_user",
+        BluetoothError::ConsentRequired => "consent_required",
+        BluetoothError::TransportNotSupported => "transport_not_supported",
+        _ => "other",
+    }
+}
+
+fn event_detail(event: &Mutex<Option<(AdStatus, BluetoothError)>>) -> String {
+    match *event.lock().unwrap() {
+        Some((status, error)) => format!(
+            "{} ({}), bluetooth: {} ({})",
+            ad_status(status),
+            status.0,
+            bluetooth_error(error),
+            error.0
+        ),
+        None => "none (no Windows BluetoothError event received)".into(),
+    }
+}
 
 fn bytes(buffer: &IBuffer) -> windows::core::Result<Vec<u8>> {
     let reader = DataReader::FromBuffer(buffer)?;
@@ -96,6 +136,7 @@ pub struct GattHost {
     lost: Arc<AtomicBool>,
     write_token: i64,
     subscription_token: i64,
+    advertisement_token: i64,
 }
 
 impl GattHost {
@@ -196,10 +237,33 @@ impl GattHost {
                 }
                 Ok(())
             }))?;
+        // The API reports StartAdvertising failures asynchronously. Capture its
+        // status AND BluetoothError; polling the status alone loses the reason.
+        let last_event = Arc::new(Mutex::new(None::<(AdStatus, BluetoothError)>));
+        let observed = Arc::clone(&last_event);
+        let advertisement_token =
+            provider.AdvertisementStatusChanged(&TypedEventHandler::<
+                GattServiceProvider,
+                GattServiceProviderAdvertisementStatusChangedEventArgs,
+            >::new(move |_, args| {
+                if let Some(args) = args.as_ref() {
+                    let (status, error) = (args.Status()?, args.Error()?);
+                    eprintln!(
+                        "[host] advertisement: {} ({}), bluetooth: {} ({})",
+                        ad_status(status),
+                        status.0,
+                        bluetooth_error(error),
+                        error.0
+                    );
+                    *observed.lock().unwrap() = Some((status, error));
+                }
+                Ok(())
+            }))?;
         let settings = GattServiceProviderAdvertisingParameters::new()?;
         settings.SetIsConnectable(true)?;
         settings.SetIsDiscoverable(true)?;
         if let Err(error) = provider.StartAdvertisingWithParameters(&settings) {
+            let _ = provider.RemoveAdvertisementStatusChanged(advertisement_token);
             let _ = characteristic.RemoveWriteRequested(write_token);
             let _ = characteristic.RemoveSubscribedClientsChanged(subscription_token);
             return Err(format!("windows GATT advertising rejected: {error}").into());
@@ -212,23 +276,39 @@ impl GattHost {
             lost,
             write_token,
             subscription_token,
+            advertisement_token,
         });
-        // StartAdvertising can succeed while the radio later aborts the ad.
+        // 'stopped' can be a transient status right after StartAdvertising;
+        // give the async event time to report the final radio outcome.
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            match host.provider.AdvertisementStatus()? {
+            let status = host.provider.AdvertisementStatus()?;
+            match status {
                 AdStatus::Started => break,
-                AdStatus::Aborted
-                | AdStatus::Stopped
-                | AdStatus::StartedWithoutAllAdvertisementData => {
+                AdStatus::StartedWithoutAllAdvertisementData => {
+                    eprintln!("[host] warning: partial advertisement; linux must verify the BitChat service UUID in a real scan");
+                    break;
+                }
+                AdStatus::Aborted => {
+                    // The event carrying BluetoothError can arrive just after
+                    // the status property changes; leave a short grace period.
+                    let reported_abort = last_event
+                        .lock()
+                        .unwrap()
+                        .is_some_and(|(reported, _)| reported == AdStatus::Aborted);
+                    if !reported_abort && Instant::now() < deadline {
+                        sleep(Duration::from_millis(100)).await;
+                        continue;
+                    }
                     return Err(format!(
-                        "windows GATT advertisement not usable: {:?}",
-                        host.provider.AdvertisementStatus()?
+                        "windows GATT advertisement aborted; last event: {}",
+                        event_detail(&last_event)
                     )
                     .into());
                 }
                 _ if Instant::now() >= deadline => {
-                    return Err("windows GATT advertisement did not start in 10s".into())
+                    return Err(format!("windows GATT advertisement did not start in 10s; status: {} ({}); last event: {}",
+                        ad_status(status), status.0, event_detail(&last_event)).into());
                 }
                 _ => sleep(Duration::from_millis(100)).await,
             }
@@ -238,8 +318,15 @@ impl GattHost {
 
     pub async fn wait_for_client(&self) -> Result<()> {
         loop {
-            if self.provider.AdvertisementStatus()? != AdStatus::Started {
-                return Err("windows GATT advertisement stopped before subscription".into());
+            let status = self.provider.AdvertisementStatus()?;
+            if status != AdStatus::Started && status != AdStatus::StartedWithoutAllAdvertisementData
+            {
+                return Err(format!(
+                    "windows GATT advertisement stopped before subscription: {} ({})",
+                    ad_status(status),
+                    status.0
+                )
+                .into());
             }
             if let Some(client) = sole_client(&self.characteristic)? {
                 let id = device_id(&client)?;
@@ -287,6 +374,9 @@ impl GattHost {
 
 impl Drop for GattHost {
     fn drop(&mut self) {
+        let _ = self
+            .provider
+            .RemoveAdvertisementStatusChanged(self.advertisement_token);
         let _ = self.provider.StopAdvertising();
         let _ = self.characteristic.RemoveWriteRequested(self.write_token);
         let _ = self

@@ -85,8 +85,12 @@ before promising resumed chat or files.
 ## next proof, in order
 
 1. on Windows, run `chatt3r.exe --host --write-limit 128 --debug`: record
-   peripheral-role support, GATT creation and **Started** advertising status.
-   stop on a capability or advertisement error; no pairing changes.
+   peripheral-role support, GATT creation and advertising status **plus**
+   BluetoothError event. `stopped` immediately after start may be transient;
+   wait up to 10 seconds. `started_without_all_advertisement_data` is only a
+   partial start: verify the service UUID from a Linux scan, not from this
+   status alone. stop on a capability or aborted/timed-out advertisement;
+   no pairing changes.
 2. on linux, disable its local known-iphone shortcut for this command with
    `CHATT3R_LE_PEER= ./scripts/chatt3r --scan-only --scan-seconds 30`. confirm
    an actual BitChat service radio update from the Windows PC. see

@@ -707,7 +707,7 @@ async fn main() -> Result<()> {
     #[cfg(windows)]
     if options.host {
         let (host, receiver) = windows_gatt::GattHost::start().await?;
-        println!("[host] Windows advertising BitChat GATT service; waiting for one Linux subscriber; ctrl-c cancels");
+        println!("[host] Windows GATT host started; check the service in a Linux scan; waiting for one subscriber; ctrl-c cancels");
         tokio::select! {
             _ = tokio::signal::ctrl_c() => return Ok(()),
             result = host.wait_for_client() => result?,

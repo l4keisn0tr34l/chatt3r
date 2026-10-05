@@ -80,11 +80,15 @@ $client = '.\desktop\bitchat-terminal\target\debug\chatt3r.exe'
 & $client --host --write-limit 128 --name windows-pc --debug
 ```
 
-look for `[host] windows advertising ... waiting for one linux subscriber`.
-if it fails at "adapter reports no ble peripheral role", "service creation",
-or "advertisement not usable", stop there: a working central/client does **not**
-prove peripheral support. save the exact error and adapter model; don't change
-pairings. keep this process and powershell window open during the next steps.
+look for `[host] windows gatt host started ... waiting for one subscriber`.
+status lines now show `advertisement: started` or a detailed Windows Bluetooth
+error. an initial `stopped` is allowed up to 10 seconds while Windows starts
+the radio. if you see `started_without_all_advertisement_data`, continue with
+the Linux **scan-only** check: it may lack the service UUID and is *not* proof
+of discovery. if it aborts or times out, save the **complete** `advertisement`
+and `bluetooth` status/error lines plus the adapter model. a working central
+client does **not** prove peripheral support; don't change pairings. keep this
+process and powershell window open during the next steps.
 
 on the **linux laptop**, from the same updated checkout:
 
