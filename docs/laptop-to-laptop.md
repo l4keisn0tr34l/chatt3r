@@ -3,11 +3,14 @@
 status: **windows GATT server physically started; signed two-desktop text
 unproven.** on a different Windows PC, the host reported BLE peripheral
 support, advertisement `started`, a subscribed central and an inbound write.
-our handler then **incorrectly latched a transient empty subscriber snapshot**,
-rejected that write with ATT `0x03` and shut down. the fix treats zero clients
-as transient until a two-second link check sees a sustained absence; a
-*different* or multiple subscribers still fail closed. this fix is unit-tested
-and Windows-target compile-checked, **not yet retested on hardware**.
+the first host run **latched a transient empty subscriber snapshot**,
+rejected the write with ATT `0x03` and shut down. after a fix that tolerates
+brief empty snapshots, a **second hardware run still rejected a write** with
+`0x03`, now reporting `different or multiple subscribed centrals`. the
+existing log doesn't distinguish one changed Windows session ID from two or
+more subscribing devices. the host now logs **only the count and match
+booleans** (no address or text) to distinguish those cases on the next run.
+no link-switching behavior is changed until the actual conflict is known.
 
 an earlier Linux run saw two unnamed live BitChat candidates, connected to
 one, found notify/write and subscribed; its first signed announcement write
@@ -113,11 +116,13 @@ before promising resumed chat or files.
    [windows.md](windows.md) for the complete two-machine run.
 3. connect Linux as central with the phone app closed; collect **simultaneous**
    debug logs on this PC and laptop. an earlier Linux run failed with ATT
-   `0x11`, while a later Windows run rejected an inbound write with `0x03`.
-   do not assume they were the same run or device. the new host accepts a
-   briefly recovered subscriber but still rejects a different/multiple
-   central(s). confirm queued frames, signed peer announcements, one Windows
-   notification received by Linux and signed `hi` text on both terminals.
+   `0x11`; two later Windows runs rejected writes with `0x03`. the current
+   blocker is a Windows subscriber conflict: `count=1` with a different
+   session ID needs different analysis from `count>1` (another subscribed
+   device). the new host prints count and identity *match flags* only.
+   do not assume these were the same device or run. then confirm queued
+   frames, signed announcements, a Windows notification received on Linux
+   and signed `hi` text on both terminals.
 4. test disconnect behavior, more than one central, malformed frames and
    message size limits. the startup retry code must never resend an ambiguous
    message. Windows host should fail closed instead of switching central peers.

@@ -126,9 +126,20 @@ fn process_write(
     lost: &AtomicBool,
 ) -> windows::core::Result<()> {
     let request = args.GetRequestAsync()?.get()?;
-    let client = sole_client(characteristic)?;
+    let clients = characteristic.SubscribedClients()?;
+    let subscribed_count = clients.Size()?;
+    let client = if subscribed_count == 1 {
+        Some(clients.GetAt(0)?)
+    } else {
+        None
+    };
     let sender = args.Session()?.DeviceId()?.Id()?.to_string();
     if lost.load(Ordering::SeqCst) {
+        let selected_matches = chosen.lock().unwrap().as_deref() == Some(sender.as_str());
+        let subscriber_matches = client
+            .as_ref()
+            .is_some_and(|client| device_id(client).is_ok_and(|id| id == sender));
+        eprintln!("[host] rejected write state: subscriber_count={subscribed_count}, writer_matches_selected={selected_matches}, writer_matches_sole_subscriber={subscriber_matches}");
         return reject_write(&request, 0x03, "subscription changed; rerun the host");
     }
     let Some(client) = client else {
@@ -287,7 +298,8 @@ impl GattHost {
                             }
                             SubscriberState::Conflicting => {
                                 if !event_lost.swap(true, Ordering::SeqCst) {
-                                    eprintln!("[host] different or multiple subscribed centrals; refusing to switch peers");
+                                    eprintln!("[host] subscriber conflict: count={count}, sole_matches_selected={}; refusing to switch peers",
+                                        only.as_deref() == Some(original.as_str()));
                                 }
                             }
                         }

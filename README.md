@@ -21,7 +21,7 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | photos, voice notes, arbitrary files | not supported by chatt3r yet |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
-| linux ↔ windows pc text | windows host physically advertised and got a subscriber/write, then our too-strict subscription handler rejected it (`ATT 0x03`); fix awaiting physical retest. **no confirmed signed text** |
+| linux ↔ windows pc text | windows host physically advertised and got a subscriber/write, but a later run still rejected the write after a subscriber conflict (`ATT 0x03`). **no confirmed signed text** |
 
 the user confirmed an iphone ↔ linux text exchange on the direct le path with
 the iphone offline. exact wifi/cellular switch states, multiple repetitions,
@@ -249,8 +249,10 @@ procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
 2. **remove the phone dependency:** a different windows pc actually
    advertised, subscribed a central and received a write. our handler
    mistook a momentary empty subscription snapshot for permanent disconnect
-   and rejected that write; the new policy awaits a hardware retest. verify
-   signed text in both directions in **one simultaneous linux ↔ windows run**.
+   and rejected that write. after that fix, another run reported a **different
+   or multiple subscriber** conflict. identify the subscriber count and
+   compare both terminals in one simultaneous test before changing peer
+   selection. verify signed text in both directions before calling it done.
    linux ↔ linux still needs a working advertising adapter and a linux gatt
    server; local bluez registration fails on this controller. see
    [docs/laptop-to-laptop.md](docs/laptop-to-laptop.md).

@@ -1,7 +1,7 @@
 # codex handoff: chatt3r
 
-last reviewed after a Windows host log showing a real advertisement,
-subscription, and an incorrectly rejected write. this is a **snapshot**, not
+last reviewed after two Windows host logs showing real advertisement,
+subscription, and rejected writes with different subscriber-state reports. this is a **snapshot**, not
 proof of two-PC signed text. check `git status`, `git log -5 --oneline`, code,
 and [laptop-to-laptop.md](laptop-to-laptop.md) before updating a claim.
 
@@ -19,7 +19,7 @@ application delivery receipts, or full live-session reconnect are implemented.
 | stock iphone ↔ linux | bidirectional public text user-confirmed on real BLE hardware, including an offline run via Linux direct LE |
 | windows → stock iphone | user-confirmed text with the native Windows central client; iphone → windows **not** separately confirmed |
 | two simulated desktop peers | signed text both directions, fragmentation, duplicate suppression and rejection unit-tested; **no radio** |
-| linux ↔ windows pc | **separate runs/devices:** Linux discovered two unnamed candidates, subscribed to one and got ATT `0x11` on first write. On a different Windows PC, the host advertised (`started`), got one subscriber and rejected an inbound write with `0x03` because of a transient empty-subscriber snapshot. The fix is software-tested; **no simultaneous signed text exchange is verified** |
+| linux ↔ windows pc | **separate runs/devices:** Linux discovered two unnamed candidates, subscribed to one and got ATT `0x11` on first write. On a different Windows PC, the host advertised (`started`), got one subscriber and rejected writes with `0x03`. One run saw an empty subscriber snapshot; a second reported different or multiple subscribed centrals. **No simultaneous signed text exchange is verified** |
 | linux ↔ linux | no physical peer test. local Realtek adapter rejected even a temporary BlueZ advertisement (`Invalid Parameters (0x0d)`) |
 
 avoid collapsing discovery, GATT subscription, app-layer signed announcement and
@@ -101,14 +101,17 @@ omitted here):
 Error: "BLE disconnected; rerun to reconnect"
 ```
 
-**root cause for that Windows-side rejection:** the `SubscribedClientsChanged`
-handler called an empty *instantaneous* subscriber list a permanent loss, even
-though an inbound write then arrived. the new policy treats zero as transient
-and the regular link check ends chat after a sustained absence; a different
-or multiple central(s) still fail closed. this policy is unit-tested but **not
-hardware-retested**. an `aborted/success` event preceded `started/success`,
-so the Windows PC *did* start advertising; do not misreport that radio as
-incapable. prior failures on this or another PC are separate evidence.
+**root cause for the first Windows-side rejection:** the handler treated an
+empty *instantaneous* subscriber list as permanent loss. the new policy
+treats zero as transient; the link check ends chat after sustained absence.
+**a later hardware run still rejected an inbound write** after
+`different or multiple subscribed centrals` (ATT `0x03`). that message is
+ambiguous: one changed Windows session ID and two or more subscribed devices
+need different fixes. the next diagnostic build prints the subscriber **count
+and match flags only**. do not weaken one-peer selection until the count and
+simultaneous Linux log are known. an `aborted/success` event preceded
+`started/success`, so the Windows PC *did* start advertising; don't call its
+radio incapable. prior Linux/Windows logs may be different runs or PCs.
 
 also, the host now waits for a validated inbound announcement before its
 first notification and caps host output to `GattSession.MaxPduSize - 3`; that
@@ -116,12 +119,13 @@ was an earlier race hypothesis, not the demonstrated subscription-policy bug.
 
 ### next decisive test, in order
 
-1. use the **same Windows PC** that just proved advertising and the updated
-   build. distinguish its startup from the earlier Linux `0x11` log, which
-   may have been a different candidate/device. capture any new
-   `subscriber snapshot empty`, accepted/rejected write and session ATT MTU
-   lines. don't publish addresses or other private logs. `one central
-   subscribed` still does not authenticate the device as Linux.
+1. use the **same Windows PC** that proved advertising and the updated
+   diagnostic build. collect `subscriber conflict: count=...` and
+   `rejected write state` match booleans, if printed. `count=1` with a changed
+   ID is a Windows session-identity issue; `count>1` suggests another
+   subscriber. do not switch peers automatically. record whether the iphone
+   app was open/nearby. don't publish addresses or raw private logs.
+   `one central subscribed` still does not authenticate the device as Linux.
 2. close the iphone **app** for a clean one-host test (leave bonds/settings
    intact). on Windows, update the checkout (if no conflicting local edits),
    build and run as a normal user in PowerShell:

@@ -3,9 +3,10 @@
 **status: experimental.** the user confirmed **windows → iphone** text with
 the native ble central/client; iphone → windows has not been separately
 confirmed. on a different windows pc, `--host` **did** advertise, get a
-subscriber and receive an ATT write, but rejected it due to a transient
-subscription snapshot. the fix has not yet been tested on that pc. **no
-signed pc ↔ linux text has been observed yet**. please share the exact stage/error
+subscriber and receive an ATT write, but rejected it after a subscription
+change. a later run still rejected a write after a **different or multiple
+subscriber** warning; the current code logs the subscriber count to tell
+those apart. **no signed pc ↔ linux text has been observed yet**. please share the exact stage/error
 rather than unpairing or assuming a successful scan means chat works.
 
 skip wsl for the first attempt: wsl2 normally doesn't expose the windows
@@ -127,12 +128,14 @@ logs and the adapter model. if linux sees **multiple unnamed candidates**, it
 could select the iphone instead of the pc: close the iphone app (no unpairing)
 and correlate the Windows console's `one central subscribed` with Linux's
 connection before concluding the pc link works. one Linux hardware attempt discovered and subscribed but its
-first announcement write returned ATT `0x11`. a separate Windows run on
-another PC reached advertisement `started` and a subscriber but rejected an
-inbound write with `0x03` after its subscriber list briefly appeared empty.
-those are **not confirmed to be the same link**. the fixed host waits through
-a transient empty snapshot; it still ends a sustained disconnect or refuses
-a different/multiple central(s). check for `[host] inbound GATT frame queued`
+first announcement write returned ATT `0x11`. later Windows runs on another PC reached advertisement `started` and a
+subscriber but rejected inbound writes with `0x03`: the first saw an empty
+subscriber snapshot; the next saw a **different or multiple** subscriber(s).
+these are **not confirmed to be the same Linux link**. the host now prints
+`subscriber conflict: count=...` and, if a write follows, match booleans
+without displaying device IDs. `count=1` with a changed ID needs a different
+fix from `count>1` (another subscribing device). close the iphone app, then
+check for `[host] inbound GATT frame queued`
 on the next physical run, not just `one central subscribed`. the host logs
 reasons but not remote addresses or text. `0x11` can also come from a different
 GATT server, so check both consoles before changing the frame size.
