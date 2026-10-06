@@ -13,8 +13,14 @@ host saw a transient empty subscriber list and later **count=2** subscribers.
 turning off phone Bluetooth allowed this later text exchange; this does not
 prove the phone was the second subscriber, only that it changed the test
 environment. phone-off is a **temporary isolation workaround**, not the
-intended product design. windows → stock iphone text is also user-confirmed
-on a Windows central client; iphone → windows is not separately confirmed.
+intended product design. the new **desktop-only BLE service UUID**
+`88d5ec18-2621-4233-ad22-82702a601c97` is intended to prevent stock
+BitChat's filtered scan from subscribing to the Windows desktop host, while
+Linux explicitly opts in with `--desktop-peer`. it is **compile-tested, not
+radio-tested** with phone Bluetooth on. Windows `--host --stock-host` keeps
+the original stock-service phone-off link available for regression testing.
+windows → stock iphone text is also user-confirmed on a Windows central client;
+iphone → windows is not separately confirmed.
 linux ↔ iphone text is user-confirmed bidirectional and offline. no files,
 private chat, relaying or application delivery receipts are shipped.
 
@@ -52,7 +58,8 @@ private chat, relaying or application delivery receipts are shipped.
 ## architecture checkpoint — first phone-free signed text
 
 ```text
-windows pc advertises bitchat service, hosts notify/write GATT characteristic
+windows pc advertises a BLE service, hosts notify/write GATT characteristic
+  stock BitChat service: proven phone-off; desktop service: current default, untested on radio
        ↓ discover
 linux laptop scans and connects as central
        ↓ write/notify over one BLE link
@@ -64,10 +71,14 @@ existing bitchat packet validation + peer state + terminal UI on both sides
 writes and notifications, and an ordered worker to feed the shared receiver.
 `desktop/bitchat-terminal/src/bin/chatt3r.rs` routes both the btleplug/Linux
 central and Windows-host frames through `LinkWriter`, `send`, `Receiver::receive`
-and `chat`. `desktop/bitchat-terminal/src/baseline/protocol.rs` implements the
-BitChat-compatible signed packets and fragmentation; the Windows host is new
-chatt3r transport code, not an upstream iPhone feature. Linux's working phone
-`linux_att.rs` direct-LE backend is unchanged.
+and `chat`. the proven phone-off session used the stock service; the new
+`--desktop-peer` mode changes **only discovery/service UUID**, not the
+characteristic or packet format. stock BitChat's iOS central scans the stock
+service UUID rather than the desktop one; if it still subscribes in a test,
+collect logs before further changes. `desktop/bitchat-terminal/src/baseline/protocol.rs`
+implements the BitChat-compatible signed packets and fragmentation; the
+Windows host is new chatt3r transport code, not an upstream iPhone feature.
+Linux's working phone `linux_att.rs` direct-LE backend is unchanged.
 
 **important limitation:** host subscription selection is currently a
 one-central policy. a brief empty subscription snapshot gets a short grace
@@ -105,15 +116,20 @@ before promising resumed chat or files.
 
 ## next proof, in order
 
-1. repeat the two-way short-text test on the same Linux/Windows pair, phone
-   Bluetooth off, with simultaneous Windows and Linux logs. separately test
-   Wi-Fi off if a reproducible fully offline switch-state claim is desired.
-2. test with phone Bluetooth on. count/identify competing WinRT subscribed
-   sessions **without committing device addresses**. deliberately select the
-   validated session and route its fragments/notifications to it; reject
-   other clients without tearing down the chosen link. do not automatically
-   switch links or replay a user message. `count=2` does **not** prove the
-   iphone was the other client.
+1. **hardware-test the new desktop service:** Windows `--host` advertises
+   `88d5ec18-2621-4233-ad22-82702a601c97` by default (the earlier
+   stock-service host remains selectable with `--host --stock-host`); Linux
+   `--desktop-peer --scan-only` should show it while ignoring the phone's
+   stock BitChat service. leave phone Bluetooth **on**, test short text both
+   ways, and collect simultaneous Windows/Linux logs. this is a BLE
+   discovery split, **not** a security or multi-client guarantee. record
+   Wi-Fi switch states separately if a fully isolated offline claim matters.
+2. if Windows still sees `count=2`, count/identify WinRT subscribed sessions
+   without committing device addresses. eventually select a validated GATT
+   session, isolate fragments/notifications by session, and reject other
+   clients without tearing down the chosen link. do not automatically
+   switch links or replay a message. `count=2` from previous runs does
+   **not** prove the iphone was the other client.
 3. test Windows `/quit`/Ctrl-C: Linux saw signed `LEAVE`, then a later periodic
    announce hit a BlueZ `WriteValue` method missing after the Windows GATT
    object was removed. likely normal peer shutdown, not an MTU failure; the

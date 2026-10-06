@@ -5,10 +5,15 @@ confirmed **linux ↔ windows pc public text** over BLE with the iphone's
 Bluetooth off: Linux received the signed `windows-pc` announcement and the
 Windows replies `yo` and `ok got it`, and the user confirmed the exchange.
 when the phone was nearby with Bluetooth on, the Windows host reported **two
-subscribers** and refused the inbound write. phone-off was a test isolation
-step, not an intended long-term requirement; no private messages, files,
-delivery receipts or live-session reconnect. windows → iphone text also worked
-on a different pc; iphone → windows has not been separately confirmed.
+subscribers** and refused the inbound write. the host now advertises a
+**desktop-only service UUID** and Linux opts into it with `--desktop-peer`, so
+stock BitChat's filtered service scan should not connect to that host. this
+new discovery route is compiled, **not yet hardware-tested with the phone
+on**. `--host --stock-host` preserves the original service as an explicit
+fallback for the proven phone-off test. phone-off was a test isolation step,
+not an intended requirement. no private messages, files, delivery receipts or
+live-session reconnect. windows → iphone text also worked on a different pc;
+iphone → windows has not been separately confirmed.
 
 skip wsl for the first attempt: wsl2 normally doesn't expose the windows
 bluetooth adapter as a linux `hci` device. use **powershell on windows itself**.
@@ -73,10 +78,17 @@ or assume wsl will provide it.
 ## laptop ↔ windows pc: try the new host role
 
 both computers need the updated commit. **windows advertises; linux scans.**
-for a reproducible one-subscriber test, keep the iphone out of BLE range or
-briefly turn off its Bluetooth (no unpairing). keeping BitChat closed alone
-wasn't enough to avoid a second Windows subscriber in previous runs. on windows, from your existing checkout in
-powershell (or repeat the clone/build setup above):
+Windows `--host` now publishes only chatt3r's **desktop service**
+`88d5ec18-2621-4233-ad22-82702a601c97`; its characteristic and signed
+packet layer are unchanged. stock BitChat scans its own upstream service UUID,
+so a separate desktop UUID should avoid the phone's opportunistic subscription
+and the Linux scanner should ignore the phone. this isolates discovery,
+**not** cryptographic device identity or genuine multi-client hosting.
+
+for the next hardware check, leave phone Bluetooth **on**. if the new
+service cannot advertise, the explicit `--stock-host` fallback below preserves
+the previous phone-off route; don't alter pairings. on Windows, from your
+existing checkout in PowerShell:
 
 ```powershell
 git pull --ff-only
@@ -85,7 +97,8 @@ $client = '.\desktop\bitchat-terminal\target\debug\chatt3r.exe'
 & $client --host --write-limit 128 --name windows-pc --debug
 ```
 
-look for `[host] windows gatt host started ... waiting for one subscriber`.
+look for `[host] chatt3r desktop service=...` and then
+`[host] windows gatt host started ... waiting for one subscriber`.
 if `GATT service creation failed`, the PC has **not started advertising**:
 stop the Linux test. the new host build prints peripheral-role support, the
 named Windows `BluetoothError` **and its numeric value**. if it reports
@@ -110,37 +123,53 @@ on the **linux laptop**, from the same updated checkout:
 ```bash
 git pull --ff-only
 ./scripts/chatt3r --build
-CHATT3R_LE_PEER= ./scripts/chatt3r --scan-only --scan-seconds 30
-CHATT3R_LE_PEER= ./scripts/chatt3r --debug --scan-seconds 90 --name laptop
+./scripts/chatt3r --desktop-peer --scan-only --scan-seconds 30
+./scripts/chatt3r --desktop-peer --debug --scan-seconds 90 --name laptop
 ```
 
-`CHATT3R_LE_PEER=` disables this laptop's **local iphone shortcut for just
-that command**; it does not erase the saved phone address or its pairing.
-the scan-only command is read-only and exits after 30 seconds. if it finds a
-live candidate with the BitChat service, run the final command while the
-windows host is still advertising. on windows, look for `one central
-subscribed` (this alone does **not** prove which device connected). the host
-now waits for a **signed incoming announcement** before its first notification;
+`--desktop-peer` bypasses this laptop's **local iphone shortcut for just
+that command** and filters on the desktop service; it does not erase the
+saved phone address or its pairing. the scan-only command is read-only and
+exits after 30 seconds. if it finds a **live chatt3r desktop candidate**, run
+the final command while the Windows host is still advertising. on windows,
+look for `one central subscribed` (this alone does **not** prove which device
+connected). the host now waits for a **signed incoming announcement** before
+its first notification;
 `--debug` then shows the session ATT MTU and capped frame limit. on linux,
 look for `connected and subscribed`, peer announcements and text on **both**
 terminals. send a short `hi from laptop` and `hi from pc` and record which
 arrived. `--debug` may log public message contents and peer ids.
 
-if Windows reports `subscriber conflict: count=2`, the current host stops
-rather than guessing which client to use. that happened with the phone's
-Bluetooth on; the phone wasn't proven to be the second subscriber, but
-turning its Bluetooth off allowed signed text in both directions. don't
-unpair or reset the PC. with phone Bluetooth still on, record simultaneous
-logs from both devices before designing selective multi-subscriber support.
+if Windows still reports `subscriber conflict: count=2`, the desktop UUID
+alone did not isolate all subscribers: don't guess identities or unpair.
+collect simultaneous logs from both devices. the previous stock-service
+host needed phone Bluetooth off for a successful two-way text test; the phone
+wasn't proven to be the second subscriber. eventually the host still needs
+safe multi-subscriber selection, even on the desktop service.
 `count=1` with a changed ID is a different failure. if Linux finds multiple
 unnamed candidates, correlate its selected peer's signed announcement with
 the Windows terminal, not just the scan name.
 
 an earlier Linux attempt failed with ATT `0x11` on an unknown candidate.
 Windows later rejected writes with `0x03` during conflicting subscriptions;
-neither error alone diagnoses MTU. in the successful one-subscriber run,
-`128`-byte frames and two-way text worked. the host logs queued/rejected
-frames without remote addresses or text.
+neither error alone diagnoses MTU. in the successful stock-service
+one-subscriber run, `128`-byte frames and two-way text worked. the host logs
+queued/rejected frames without remote addresses or text.
+
+if the **new** desktop service is not visible on this Windows adapter, the
+**proven phone-off** link is still available, but both ends must explicitly
+select the old service. leave phone Bluetooth off or out of range for this
+fallback; don't use it to test phone-on isolation:
+
+```powershell
+& $client --host --stock-host --write-limit 128 --name windows-pc --debug
+```
+
+```bash
+CHATT3R_LE_PEER= ./scripts/chatt3r --debug --scan-seconds 90 --name laptop
+```
+
+`--stock-host` has no role in the new desktop-only discovery mode.
 
 if linux sees the service but the generic BlueZ
 connection picks classic/audio instead, don't unpair devices: that needs a
@@ -186,7 +215,9 @@ message replay is implemented.
 
 windows `--host` uses native Windows GATT, while Linux scans as a central;
 both roles feed the shared signed packet/chat code. two-way public text is
-user-confirmed on real BLE hardware without a phone link. the one-subscriber
-host still fails closed if another central subscribes. Linux-only advertising
-is still blocked on this laptop's Realtek controller. see
-[laptop-to-laptop.md](laptop-to-laptop.md) for evidence and next steps.
+user-confirmed on real BLE hardware **using the earlier stock service with
+phone Bluetooth off**. the desktop-only service still needs a hardware test
+with the phone on. the one-subscriber host still fails closed if another
+central subscribes. Linux-only advertising is still blocked on this laptop's
+Realtek controller. see [laptop-to-laptop.md](laptop-to-laptop.md) for evidence
+and next steps.

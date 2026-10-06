@@ -17,10 +17,11 @@ usage() {
         'chatt3r --help                   this cheat sheet' \
         'chatt3r --name laptop            pick your nickname' \
         'chatt3r --scan-only --scan-seconds 30    scan without connecting' \
+        'chatt3r --desktop-peer --debug    scan for a windows/laptop host, not the phone' \
         'chatt3r --direct-le <phone-address>   linux LE-only recovery for a known phone' \
         'chatt3r --direct-le <address> --wait-for-peer   wait before starting chat' \
         'CHATT3R_LE_PEER=<phone-address> chatt3r    use that phone by default (local setting)' \
-        'CHATT3R_LE_PEER= chatt3r --scan-seconds 90    scan for a pc host instead of your saved phone' \
+        'CHATT3R_LE_PEER= chatt3r    temporarily bypass your saved phone' \
         'chatt3r --doctor                 check the laptop adapter; changes nothing' \
         'chatt3r --build                  rebuild only, then exit' \
         '' \
@@ -89,7 +90,7 @@ if [[ -n "${CHATT3R_LE_PEER:-}" ]]; then
     use_direct=1
     for arg in "$@"; do
         case "$arg" in
-            --direct-le|--scan-only|--help|-h) use_direct=0; break ;;
+            --direct-le|--desktop-peer|--scan-only|--help|-h) use_direct=0; break ;;
         esac
     done
     if [[ $use_direct -eq 1 ]]; then

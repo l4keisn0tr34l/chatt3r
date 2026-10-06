@@ -2,8 +2,10 @@
 
 current snapshot: **user-confirmed two-way public text over BLE between the
 Linux laptop and Windows PC, with iphone Bluetooth off.** this is one physical
-session, not a finished multi-device link. check `git status`, current code
-and [laptop-to-laptop.md](laptop-to-laptop.md) before updating claims.
+session. the new desktop-only service UUID is compiled, **not radio-tested**
+with the phone on; this is not a finished multi-device link. check the
+working tree, current code and [laptop-to-laptop.md](laptop-to-laptop.md)
+before updating claims.
 
 ## purpose and evidence
 
@@ -30,7 +32,8 @@ an ambiguous message after link failure.
 ## architecture checkpoint: proven one-link text
 
 ```text
-windows pc --host (WinRT GattServiceProvider advertisement + GATT server)
+windows pc --host (WinRT GATT; proven stock service with phone off,
+                    desktop-only service now default, radio test pending)
   ↑ central writes / ↓ characteristic notifications
 linux laptop (btleplug fresh scan + connect + subscribe)
   ↔ shared BitChat-compatible signed packets, Receiver, terminal chat
@@ -39,10 +42,15 @@ linux laptop (btleplug fresh scan + connect + subscribe)
 - `desktop/bitchat-terminal/src/bin/chatt3r.rs`: `discover`, `LinkWriter`,
   `send`, `Receiver::receive`, `chat`, and Windows `--host` entry point. same
   packet validation and UI are used for the client and host transports.
+  `--desktop-peer` selects UUID `88d5ec18-2621-4233-ad22-82702a601c97`
+  for Linux/Windows central discovery; no flag still scans stock BitChat.
+  Windows `--host` defaults to desktop; `--host --stock-host` retains the
+  original phone-off host route for explicit regression tests.
 - `desktop/bitchat-terminal/src/baseline/windows_gatt.rs`: native Windows
-  GATT service, single ordered inbound write worker, subscribed-client checks,
-  targeted notifications, reported ATT MTU cap, explicit cleanup. the host
-  waits for a valid signed incoming announcement before notifying.
+  GATT service under the desktop-only UUID, single ordered inbound write
+  worker, subscribed-client checks, targeted notifications, reported ATT MTU
+  cap and explicit cleanup. the host waits for a valid signed incoming
+  announcement before notifying.
 - `desktop/bitchat-terminal/src/baseline/host_policy.rs`: pure single-central
   subscription rules tested without Windows hardware. a briefly empty
   subscriber list gets a grace period; a different or additional subscriber
@@ -69,7 +77,13 @@ initially selected central. turning iphone Bluetooth off allowed the later
 signed two-way text session. that does **not prove** the iphone was the
 second subscriber; closing its app alone had not prevented the conflict.
 `count=2` means two WinRT subscribed sessions, not necessarily two physical
-devices. don't unpair/reset devices to hide this issue.
+devices. don't unpair/reset devices to hide this issue. a new **desktop-only
+service UUID** is now used by Windows `--host`; stock BitChat's upstream
+iOS central filters for its own service UUID, and the Linux client must opt
+in with `--desktop-peer`. this separates discovery, not packet format or
+cryptographic trust. no phone-on hardware result yet. fallback to the old
+stock-service host only with explicit Windows `--host --stock-host` and Linux
+`CHATT3R_LE_PEER= ./scripts/chatt3r ...`, with phone Bluetooth off.
 
 in the successful run Linux logged two announcement fragments from
 `windows-pc`, `[windows-pc] yo`, `[windows-pc] ok got it`, and outbound
@@ -82,17 +96,22 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 
 ### next work, in order
 
-1. keep the one-subscriber, phone-off flow as a known physical regression
-   test. repeat with simultaneous Windows and Linux logs. if measuring a
-   fully offline run, record Wi-Fi/cellular switch states too. on Linux,
-   override its local known-iphone shortcut **for that invocation** with
-   `CHATT3R_LE_PEER= ./scripts/chatt3r --debug --scan-seconds 90 --name laptop`.
-2. design competing-subscriber handling before claiming the phone can remain
-   on. safely bind incoming fragments and notifications to one selected GATT
-   session **after validation**, reject/ignore other sessions without
-   blacklisting the chosen one, and don't silently switch peers or replay
-   ambiguous writes. the existing single-peer policy fails closed; it is
-   not general laptop-to-laptop role negotiation.
+1. **test the new desktop-only service on the same Windows/Linux PC pair,
+   with phone Bluetooth on.** pull/build both sides: Windows runs `--host`;
+   Linux `./scripts/chatt3r --desktop-peer --scan-only --scan-seconds 30`
+   and then `./scripts/chatt3r --desktop-peer --debug --scan-seconds 90
+   --name laptop` (one shell line). the launcher bypasses its saved phone
+   for this flag. the desktop service filters out stock BitChat only if real advertisements
+   and OS scans behave as the inspected iOS filter suggests. record both
+   consoles; do not describe the phone-on test as working yet.
+2. if `count=2` persists on the desktop service, design competing-subscriber
+   handling: bind fragments and notifications to a selected GATT session
+   after validation, reject/ignore others without blacklisting the chosen
+   one, and don't silently switch peers or replay ambiguous writes. this
+   would be a separate subsystem; a unique UUID alone is not authentication
+   or general laptop-to-laptop role negotiation. keep the phone-off proven
+   session as regression evidence. record Wi-Fi/cellular switch states if
+   measuring a fully offline run.
 3. test Windows `/quit`/Ctrl-C and Linux teardown, out-of-range behavior and
    restart explicitly. the client does not reconnect an established session
    or provide application delivery ACKs.

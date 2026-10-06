@@ -36,13 +36,19 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 const SERVICE: Uuid = Uuid::from_u128(0xF47B5E2D_4A9E_4C5A_9B3F_8E1D2C3A4B5C);
+// Desktop-only discovery: stock BitChat scans the upstream service UUID,
+// so it should not subscribe to the Windows test host. Packet format stays
+// BitChat-compatible; this is transport separation, not authenticated pairing.
+const DESKTOP_SERVICE: Uuid = Uuid::from_u128(0x88D5EC18_2621_4233_AD22_82702A601C97);
 const CHARACTERISTIC: Uuid = Uuid::from_u128(0xA1B2C3D4_E5F6_4A5B_8C9D_0E1F2A3B4C5D);
 
 struct Options {
     name: String,
     write_limit: Option<usize>,
     scan_only: bool,
+    desktop_peer: bool,
     host: bool,
+    stock_host: bool,
     scan_seconds: u64,
     direct_le: Option<BDAddr>,
     wait_for_peer: bool,
@@ -58,7 +64,9 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
         name: "chatt3r-linux".into(),
         write_limit: None,
         scan_only: false,
+        desktop_peer: false,
         host: false,
+        stock_host: false,
         scan_seconds: 30,
         direct_le: None,
         wait_for_peer: false,
@@ -72,11 +80,13 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
                     "chatt3r — experimental BitChat BLE public-text baseline\n\
 Usage: chatt3r --write-limit <bytes> [--name <nickname>] [--debug]\n\
        chatt3r --scan-only [--scan-seconds <seconds>]\n\
-       chatt3r --host --write-limit <bytes> [--name <nickname>] (windows gatt server)\n\
+       chatt3r --desktop-peer --write-limit <bytes> [--scan-seconds <seconds>] (scan for desktop host)\n\
+       chatt3r --host --write-limit <bytes> [--name <nickname>] (windows desktop gatt server)\n\
+       chatt3r --host --stock-host --write-limit <bytes> (proven phone-off service fallback)\n\
        chatt3r --direct-le <phone-address> [--wait-for-peer] [--debug] (linux LE-only link)\n\
 --write-limit: operator-provided characteristic value limit, NOT measured MTU (36..512).\n\
 Short public messages only (99 UTF-8 bytes). No confidentiality, DMs, files or relaying.\n\
-Keep stock BitChat open on iPhone in the Bluetooth/mesh public room.\n\
+For phone mode keep stock BitChat open on iPhone in its public room; desktop mode needs Windows --host.\n\
 Commands: /peers, /announce, /quit. Ctrl-C / Ctrl-D exit. Run without sudo first.\n\
 Quiet by default; --debug shows BLE diagnostics. Nicknames are colored per peer.\n\
 Arrow keys edit/recall input; incoming messages preserve your draft. NO_COLOR disables colors."
@@ -91,7 +101,9 @@ Arrow keys edit/recall input; incoming messages preserve your draft. NO_COLOR di
                 options.scan_seconds = args.next().ok_or("missing scan duration")?.parse()?
             }
             "--scan-only" => options.scan_only = true,
+            "--desktop-peer" => options.desktop_peer = true,
             "--host" => options.host = true,
+            "--stock-host" => options.stock_host = true,
             "--direct-le" => {
                 options.direct_le = Some(args.next().ok_or("missing LE phone address")?.parse()?)
             }
@@ -109,6 +121,14 @@ Arrow keys edit/recall input; incoming messages preserve your draft. NO_COLOR di
     if options.direct_le.is_some() && options.scan_only {
         return Err("--direct-le connects; it cannot be combined with --scan-only".into());
     }
+    if options.stock_host && !options.host {
+        return Err("--stock-host requires --host".into());
+    }
+    if options.desktop_peer
+        && (options.host || options.direct_le.is_some() || options.wait_for_peer)
+    {
+        return Err("--desktop-peer scans; it cannot be combined with --host or direct LE".into());
+    }
     if options.host && (options.scan_only || options.direct_le.is_some() || options.wait_for_peer) {
         return Err(
             "--host cannot be combined with scanning, --direct-le or --wait-for-peer".into(),
@@ -124,6 +144,23 @@ Arrow keys edit/recall input; incoming messages preserve your draft. NO_COLOR di
         );
     }
     Ok(Some(options))
+}
+
+fn scanned_service(options: &Options) -> Uuid {
+    if options.desktop_peer {
+        DESKTOP_SERVICE
+    } else {
+        SERVICE
+    }
+}
+
+#[cfg(any(windows, test))]
+fn hosted_service(options: &Options) -> Uuid {
+    if options.stock_host {
+        SERVICE
+    } else {
+        DESKTOP_SERVICE
+    }
 }
 
 fn now_ms() -> u64 {
@@ -150,6 +187,7 @@ async fn discover(
     adapter: &Adapter,
     events: &mut BoxStream<'_, CentralEvent>,
     scan: &mut FreshScan<btleplug::platform::PeripheralId>,
+    service: Uuid,
     scan_only: bool,
     debug: bool,
 ) -> Result<Option<Peripheral>> {
@@ -173,11 +211,16 @@ async fn discover(
         for peripheral in adapter.peripherals().await? {
             if let Some(properties) = peripheral.properties().await? {
                 if let Some(rank) =
-                    scan.rank(&peripheral.id(), properties.services.contains(&SERVICE))
+                    scan.rank(&peripheral.id(), properties.services.contains(&service))
                 {
                     if scan.report_once(peripheral.id()) && (scan_only || debug) {
                         println!(
-                            "[scan] live BitChat candidate; name={}",
+                            "[scan] live {} candidate; name={}",
+                            if service == DESKTOP_SERVICE {
+                                "chatt3r desktop"
+                            } else {
+                                "BitChat"
+                            },
                             display(properties.local_name.as_deref().unwrap_or("(unnamed)"))
                         );
                     }
@@ -407,10 +450,14 @@ impl Error for StartupError {
 }
 
 impl StartupError {
-    fn service_not_ready() -> Self {
+    fn service_not_ready(desktop_peer: bool) -> Self {
         Self {
             stage: "GATT discovery",
-            cause: "BitChat characteristic unavailable; keep the iPhone app open (discovery can match cached UUIDs)".into(),
+            cause: if desktop_peer {
+                "desktop GATT characteristic unavailable; keep the Windows host running (discovery can match cached UUIDs)"
+            } else {
+                "BitChat characteristic unavailable; keep the iPhone app open (discovery can match cached UUIDs)"
+            }.into(),
             retryable: true,
             missing_service: true,
         }
@@ -445,6 +492,7 @@ async fn startup_stage<T>(
 
 async fn prepare_link(
     peripheral: &Peripheral,
+    service: Uuid,
     debug: bool,
 ) -> std::result::Result<ReadyLink, StartupError> {
     startup_stage("connection", Duration::from_secs(20), peripheral.connect()).await?;
@@ -466,8 +514,8 @@ async fn prepare_link(
     }
     let characteristic = characteristics
         .iter()
-        .find(|c| c.uuid == CHARACTERISTIC && c.service_uuid == SERVICE)
-        .ok_or_else(StartupError::service_not_ready)?
+        .find(|c| c.uuid == CHARACTERISTIC && c.service_uuid == service)
+        .ok_or_else(|| StartupError::service_not_ready(service == DESKTOP_SERVICE))?
         .clone();
     if !characteristic.properties.contains(CharPropFlags::NOTIFY)
         || !characteristic
@@ -539,11 +587,15 @@ where
     unreachable!()
 }
 
-async fn connect_with_retry(peripheral: &Peripheral, debug: bool) -> Result<ReadyLink> {
+async fn connect_with_retry(
+    peripheral: &Peripheral,
+    service: Uuid,
+    debug: bool,
+) -> Result<ReadyLink> {
     retry_startup(
         debug,
         Duration::from_secs(2),
-        || prepare_link(peripheral, debug),
+        || prepare_link(peripheral, service, debug),
         || async {
             let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
         },
@@ -756,7 +808,7 @@ async fn main() -> Result<()> {
     }
     #[cfg(windows)]
     if options.host {
-        let (host, receiver) = windows_gatt::GattHost::start().await?;
+        let (host, receiver) = windows_gatt::GattHost::start(hosted_service(&options)).await?;
         println!("[host] Windows GATT host started; check the service in a Linux scan; waiting for one subscriber; ctrl-c cancels");
         tokio::select! {
             _ = tokio::signal::ctrl_c() => return Ok(()),
@@ -813,6 +865,7 @@ async fn main() -> Result<()> {
     if options.debug {
         println!("[debug] BLE diagnostics enabled; --help prints usage");
     }
+    let service = scanned_service(&options);
     let manager = Manager::new().await?;
     let adapter = manager
         .adapters()
@@ -830,17 +883,24 @@ async fn main() -> Result<()> {
     let initial = adapter.peripherals().await?.into_iter().map(|p| p.id());
     let mut scan = FreshScan::new(initial);
     let filter = ScanFilter {
-        services: vec![SERVICE],
+        services: vec![service],
     };
     adapter.start_scan(filter.clone()).await?;
     let deadline = Instant::now() + Duration::from_secs(options.scan_seconds);
     if options.debug || options.scan_only {
         println!(
-            "[scan] service={SERVICE}; duration={}s; no pairing required",
+            "[scan] service={service}; duration={}s; no pairing required",
             options.scan_seconds
         );
     } else {
-        println!("Looking for nearby BitChat peers…");
+        println!(
+            "Looking for nearby {} peers…",
+            if options.desktop_peer {
+                "chatt3r desktop"
+            } else {
+                "BitChat"
+            }
+        );
     }
     let mut last_error: Option<Box<dyn Error>> = None;
     let mut cancelled = false;
@@ -851,7 +911,7 @@ async fn main() -> Result<()> {
         }
         let discovered = tokio::select! {
             _ = tokio::signal::ctrl_c() => { cancelled = true; Ok(None) },
-            result = timeout(remaining, discover(&adapter, &mut events, &mut scan, options.scan_only, options.debug)) => {
+            result = timeout(remaining, discover(&adapter, &mut events, &mut scan, service, options.scan_only, options.debug)) => {
                 match result { Ok(result) => result, Err(_) => Ok(None) }
             }
         };
@@ -866,7 +926,7 @@ async fn main() -> Result<()> {
         adapter.stop_scan().await?;
         let connection = tokio::select! {
             _ = tokio::signal::ctrl_c() => Err("connection cancelled".into()),
-            result = connect_with_retry(&peripheral, options.debug) => result,
+            result = connect_with_retry(&peripheral, service, options.debug) => result,
         };
         if let Err(error) = &connection {
             if error
@@ -874,7 +934,7 @@ async fn main() -> Result<()> {
                 .is_some_and(|e| e.missing_service)
             {
                 scan.reject(peripheral.id());
-                eprintln!("[scan] this candidate has no active BitChat characteristic; looking for another live address");
+                eprintln!("[scan] this candidate has no active chat characteristic; looking for another live address");
                 last_error = connection.err();
                 let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
                 if Instant::now() < deadline {
@@ -909,7 +969,11 @@ async fn main() -> Result<()> {
         return Err(error);
     }
     if !options.scan_only {
-        return Err("no live BitChat peer found; keep iPhone unlocked with BitChat open in its Bluetooth public room, then rerun".into());
+        return Err(if options.desktop_peer {
+            "no live chatt3r desktop host found; start Windows --host, then rerun"
+        } else {
+            "no live BitChat peer found; keep iPhone unlocked with BitChat open in its Bluetooth public room, then rerun"
+        }.into());
     }
     Ok(())
 }
@@ -936,12 +1000,53 @@ mod tests {
     }
 
     #[test]
+    fn desktop_service_is_opt_in_and_separate_from_the_phone_service() {
+        let normal = parse_options(["--write-limit", "128"].into_iter().map(str::to_owned))
+            .unwrap()
+            .unwrap();
+        assert_eq!(scanned_service(&normal), SERVICE);
+        let desktop = parse_options(
+            ["--desktop-peer", "--write-limit", "128"]
+                .into_iter()
+                .map(str::to_owned),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(scanned_service(&desktop), DESKTOP_SERVICE);
+        let scan = parse_options(
+            ["--desktop-peer", "--scan-only"]
+                .into_iter()
+                .map(str::to_owned),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(scanned_service(&scan), DESKTOP_SERVICE);
+        assert!(parse_options(["--stock-host"].into_iter().map(str::to_owned)).is_err());
+        let fallback = parse_options(
+            ["--host", "--stock-host", "--write-limit", "128"]
+                .into_iter()
+                .map(str::to_owned),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(fallback.host && fallback.stock_host);
+        assert_eq!(hosted_service(&fallback), SERVICE);
+        for flags in [
+            vec!["--desktop-peer", "--host"],
+            vec!["--desktop-peer", "--direct-le", "11:22:33:44:55:66"],
+        ] {
+            assert!(parse_options(flags.into_iter().map(str::to_owned)).is_err());
+        }
+    }
+
+    #[test]
     fn host_mode_is_explicit_and_exclusive() {
         let args = ["--host", "--write-limit", "128"];
         let config = parse_options(args.into_iter().map(str::to_owned))
             .unwrap()
             .unwrap();
         assert!(config.host);
+        assert_eq!(hosted_service(&config), DESKTOP_SERVICE);
         assert!(!config.scan_only);
         for flags in [
             vec!["--host", "--scan-only"],
@@ -1022,7 +1127,7 @@ mod tests {
             !StartupError::fatal("GATT discovery", "unsupported characteristic properties")
                 .retryable
         );
-        assert!(StartupError::service_not_ready().retryable);
+        assert!(StartupError::service_not_ready(false).retryable);
         let value = startup_stage("connection", Duration::from_secs(1), async { Ok(42) })
             .await
             .unwrap();
@@ -1077,7 +1182,7 @@ mod tests {
             Duration::ZERO,
             || {
                 attempts.set(attempts.get() + 1);
-                std::future::ready(Err::<(), _>(StartupError::service_not_ready()))
+                std::future::ready(Err::<(), _>(StartupError::service_not_ready(false)))
             },
             || {
                 resets.set(resets.get() + 1);

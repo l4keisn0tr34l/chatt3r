@@ -67,6 +67,7 @@ print('fake adapter state')
 
     for args in [(), ("--debug",), ("--name", "my laptop"),
                  ("--write-limit", "64"), ("--scan-only", "--scan-seconds", "30"),
+                 ("--desktop-peer", "--debug"),
                  ("--direct-le", "AA:BB:CC:DD:EE:FF", "--debug")]:
         record = json.loads(run(*args).stdout)
         assert record["args"] == ["--write-limit", "128", *args], record
@@ -75,6 +76,7 @@ print('fake adapter state')
     for args, expected in [
         (("--debug",), ["--direct-le", "AA:BB:CC:DD:EE:FF", "--wait-for-peer", "--debug"]),
         (("--debug", "--scan-only"), ["--debug", "--scan-only"]),
+        (("--desktop-peer", "--debug"), ["--desktop-peer", "--debug"]),
         (("--direct-le", "11:22:33:44:55:66"), ["--direct-le", "11:22:33:44:55:66"]),
     ]:
         record = json.loads(run(*args).stdout)

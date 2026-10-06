@@ -6,9 +6,11 @@ engineering state and next physical test. [README.md](README.md) has setup,
 and [context.md](context.md) describes the long-term goal, **not** necessarily
 what has shipped. prefer observed results and current code over old roadmaps.
 
-- preserve the user-confirmed linux ↔ iphone direct-le text path and the
-  windows → iphone central/client path. windows `--host` is experimental; no
-  phone-free laptop ↔ pc message has yet been confirmed.
+- preserve user-confirmed linux ↔ iphone direct-le text and windows → iphone
+  central/client paths. linux ↔ windows pc **two-way public text** is also
+  user-confirmed over BLE with iphone Bluetooth off. the new desktop-only
+  service UUID and phone-on isolation **still need hardware testing**;
+  Windows `--host --stock-host` preserves the proven phone-off service path.
 - keep backend-specific BLE code separate from the shared signed packet/chat
   layer. do not replay a possibly delivered user message on reconnect. BLE
   write success is not a delivery receipt.

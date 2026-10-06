@@ -21,7 +21,7 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | photos, voice notes, arbitrary files | not supported by chatt3r yet |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
-| linux ↔ windows pc text | **user-confirmed two-way signed public text over BLE without the iphone**; only worked with the phone's Bluetooth off to avoid a second subscriber |
+| linux ↔ windows pc text | **user-confirmed two-way signed public text over BLE without the iphone** using the stock service with phone Bluetooth off; separate desktop-only service to isolate extra subscribers is compiled, **not hardware-tested yet** |
 
 the user confirmed an iphone ↔ linux text exchange on the direct le path with
 the iphone offline. exact wifi/cellular switch states, multiple repetitions,
@@ -34,7 +34,10 @@ bluez path is not yet physically validated. this isn't a finished, guaranteed-re
 these steps are for ubuntu. **windows:** see the experimental
 [windows setup and run guide](docs/windows.md); the windows gatt **host**
 exchanged two-way public text with linux in a one-subscriber hardware test.
-windows → iphone text is separately user-confirmed. for a coding-agent handoff, start at
+new `--desktop-peer` discovery isolates the PC service from stock BitChat but
+needs a phone-on hardware test. Windows `--host --stock-host` keeps the proven
+stock-service route as an explicit phone-off fallback. windows → iphone text
+is separately user-confirmed. for a coding-agent handoff, start at
 [AGENTS.md](AGENTS.md) and [docs/codex-handoff.md](docs/codex-handoff.md).
 
 ### 1. set up the laptop
@@ -118,7 +121,7 @@ from any folder because it resolves paths relative to its own location.
 | `chatt3r --help` | print the cheat sheet; no connection |
 | `chatt3r --name laptop` | choose a nickname, max 24 utf-8 bytes |
 | `chatt3r --scan-only --scan-seconds 30` | scan without connecting or sending |
-| `CHATT3R_LE_PEER= chatt3r --debug --scan-seconds 90` | scan for a pc host instead of using this laptop's saved phone shortcut; see [windows test](docs/windows.md) |
+| `chatt3r --desktop-peer --debug --scan-seconds 90` | scan only the Windows/desktop service, automatically bypassing this laptop's saved phone shortcut; see [windows test](docs/windows.md) |
 | `chatt3r --direct-le <phone-address>` | linux-only LE connection for a known phone when bluez picks classic/audio instead |
 | `CHATT3R_LE_PEER=<phone-address> chatt3r` | locally select that direct LE phone and wait for its app to become ready; never publish your real address |
 | `chatt3r --doctor` | inspect the laptop adapter; changes nothing |
@@ -246,13 +249,18 @@ procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
 
 1. **harden text:** repeated offline tests, saved preferences, reliable reconnects,
    larger-message support, and a cleaner desktop core.
-2. **harden phone-free desktop text:** linux ↔ windows now exchanges signed
-   text when the iphone's Bluetooth is off. the Windows host still rejects
-   extra subscribers; don't require the phone to stay off forever. select
-   a link deliberately, test out-of-range/reconnect and never replay an
-   ambiguous message. linux ↔ linux still needs a working advertising adapter
-   and a linux gatt server; local bluez registration fails on this controller.
-   see [docs/laptop-to-laptop.md](docs/laptop-to-laptop.md).
+2. **harden phone-free desktop text:** linux ↔ windows exchanged signed text
+   with the phone's Bluetooth off. the new desktop-only discovery UUID should
+   keep that Windows host out of the stock iphone's service scan, while both
+   desktop sides keep the same signed packet format. **test this new transport
+   on hardware with phone Bluetooth on.** competing desktop subscribers,
+   out-of-range/reconnect and ambiguous writes still need safe handling. never
+   replay an ambiguous message. linux ↔ linux still needs a working
+   advertising adapter and a linux gatt server; local bluez registration
+   fails on this controller.
+   keep `--host --stock-host` for the old phone-off regression test if the
+   desktop service cannot advertise here. see
+   [docs/laptop-to-laptop.md](docs/laptop-to-laptop.md).
 3. **add files:** receive a small phone attachment, then verified arbitrary files.
    an iphone fork may need macos/xcode if stock ui can't expose the needed flow.
 

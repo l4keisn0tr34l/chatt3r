@@ -1,9 +1,10 @@
 //! Native Windows peripheral role. This is separate from btleplug's proven
 //! central path; it advertises one GATT service and receives writes from one
-//! subscribed Linux central. Hardware interoperability still needs a PC test.
+//! subscribed Linux central. The stock-service fallback exchanged text on
+//! hardware; desktop-only service discovery still needs a phone-on test.
 use super::{
     host_policy::{assess, within_disconnect_grace, SubscriberState},
-    Result, CHARACTERISTIC, SERVICE,
+    Result, CHARACTERISTIC, DESKTOP_SERVICE, SERVICE,
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -11,6 +12,7 @@ use std::sync::{
 };
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration, Instant};
+use uuid::Uuid;
 use windows::core::GUID;
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattCharacteristicProperties as Props, GattCommunicationStatus, GattLocalCharacteristic,
@@ -187,7 +189,7 @@ pub struct GattHost {
 }
 
 impl GattHost {
-    pub async fn start() -> Result<(Arc<Self>, mpsc::Receiver<Vec<u8>>)> {
+    pub async fn start(service: Uuid) -> Result<(Arc<Self>, mpsc::Receiver<Vec<u8>>)> {
         let adapter = BluetoothAdapter::GetDefaultAsync()?.await?;
         let peripheral_supported = adapter.IsPeripheralRoleSupported()?;
         eprintln!(
@@ -199,7 +201,17 @@ impl GattHost {
                     .into(),
             );
         }
-        let result = GattServiceProvider::CreateAsync(GUID::from_u128(SERVICE.as_u128()))?.await?;
+        eprintln!(
+            "[host] {} service={service}",
+            if service == DESKTOP_SERVICE {
+                "chatt3r desktop"
+            } else if service == SERVICE {
+                "stock BitChat fallback"
+            } else {
+                "unknown"
+            }
+        );
+        let result = GattServiceProvider::CreateAsync(GUID::from_u128(service.as_u128()))?.await?;
         let creation_error = result.Error()?;
         if creation_error != BluetoothError::Success {
             return Err(format!(
