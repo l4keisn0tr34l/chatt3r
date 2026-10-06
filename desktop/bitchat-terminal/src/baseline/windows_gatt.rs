@@ -356,6 +356,25 @@ impl GattHost {
         }
     }
 
+    pub fn att_mtu(&self) -> Result<usize> {
+        let client = self
+            .client
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or("no subscribed client")?;
+        Ok(client.Session()?.MaxPduSize()? as usize)
+    }
+
+    pub fn max_value(&self) -> Result<usize> {
+        let mtu = self.att_mtu()?;
+        let value = mtu.saturating_sub(3);
+        if value < 36 {
+            return Err(format!("windows session ATT MTU={mtu}: need at least 39 bytes for a signed frame; cannot notify safely").into());
+        }
+        Ok(value)
+    }
+
     pub fn connected(&self) -> Result<bool> {
         if self.lost.load(Ordering::SeqCst) {
             return Ok(false);
@@ -372,6 +391,12 @@ impl GattHost {
     pub async fn write(&self, frame: &[u8]) -> Result<()> {
         if !self.connected()? {
             return Err("BLE subscription ended; rerun to reconnect".into());
+        }
+        if frame.len() > self.max_value()? {
+            return Err(
+                "BLE session ATT MTU shrank; refusing an oversized notification without replay"
+                    .into(),
+            );
         }
         let client = self
             .client

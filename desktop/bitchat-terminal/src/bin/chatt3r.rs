@@ -216,13 +216,23 @@ impl LinkWriter<'_> {
             LinkWriter::WindowsHost(host) => host.connected(),
         }
     }
-    fn write_limit(&self, configured: usize) -> usize {
+    fn write_limit(&self, configured: usize) -> Result<usize> {
         match self {
-            LinkWriter::BlueZ(_, _) => configured,
+            LinkWriter::BlueZ(_, _) => Ok(configured),
             #[cfg(target_os = "linux")]
-            LinkWriter::Direct(link) => configured.min(link.max_value()),
+            LinkWriter::Direct(link) => Ok(configured.min(link.max_value())),
             #[cfg(windows)]
-            LinkWriter::WindowsHost(_) => configured,
+            LinkWriter::WindowsHost(host) => Ok(configured.min(host.max_value()?)),
+        }
+    }
+    fn wait_for_announcement(&self) -> bool {
+        #[cfg(windows)]
+        {
+            matches!(self, LinkWriter::WindowsHost(_))
+        }
+        #[cfg(not(windows))]
+        {
+            false
         }
     }
     async fn write(&self, frame: &[u8]) -> Result<()> {
@@ -530,6 +540,12 @@ async fn connect_with_retry(peripheral: &Peripheral, debug: bool) -> Result<Read
     .await
 }
 
+// A peripheral has no reason to notify on a link until the central has sent
+// a validated peer announcement. The established phone-client path stays eager.
+fn can_announce(wait_for_peer: bool, known_peers: usize) -> bool {
+    !wait_for_peer || known_peers > 0
+}
+
 async fn chat(
     writer: LinkWriter<'_>,
     mut notifications: BoxStream<'static, ValueNotification>,
@@ -541,7 +557,16 @@ async fn chat(
     let signing = SigningKey::generate(&mut OsRng);
     let announce_payload =
         protocol::announcement(&options.name, &noise_public, &signing.verifying_key())?;
-    let limit = writer.write_limit(options.write_limit.unwrap());
+    let wait_for_announcement = writer.wait_for_announcement();
+    let configured_limit = options.write_limit.unwrap();
+    // A Windows subscriber can appear before its ATT MTU settles. Do not
+    // query/cap notifications or transmit on that session until an inbound
+    // signed announcement proves the central can actually exchange frames.
+    let mut limit = if wait_for_announcement {
+        configured_limit
+    } else {
+        writer.write_limit(configured_limit)?
+    };
     if options.debug {
         println!(
             "[identity] {} ({}) — ephemeral for this run",
@@ -554,9 +579,7 @@ async fn chat(
             }
             #[cfg(windows)]
             LinkWriter::WindowsHost(_) => {
-                println!(
-                    "[ble] configured notification limit={limit} bytes; negotiated MTU unknown"
-                )
+                println!("[ble] configured notification limit={limit} bytes; checking session ATT MTU after inbound announcement")
             }
             #[cfg(target_os = "linux")]
             LinkWriter::Direct(link) => println!(
@@ -572,17 +595,23 @@ async fn chat(
     let mut receiver = Receiver::new(local);
     let mut initial_announce = Packet::new(ANNOUNCE, local, now_ms(), announce_payload.clone());
     initial_announce.sign(&signing)?;
-    send(
-        &writer,
-        &initial_announce,
-        limit,
-        &ui::Output::plain(options.debug),
-    )
-    .await?;
+    let mut initial_sent = false;
+    if can_announce(wait_for_announcement, receiver.peers.len()) {
+        send(
+            &writer,
+            &initial_announce,
+            limit,
+            &ui::Output::plain(options.debug),
+        )
+        .await?;
+        initial_sent = true;
+    } else if options.debug {
+        println!("[host] waiting for a signed peer announcement before notifying");
+    }
     println!("/peers · /announce · /quit");
     let (mut input, output) = ui::open(options.debug)?;
     let mut announce_tick = tokio::time::interval(Duration::from_secs(15));
-    announce_tick.tick().await; // Initial announcement already sent.
+    announce_tick.tick().await; // Schedule later announcements in 15s.
     let mut link_tick = tokio::time::interval(Duration::from_secs(2));
     loop {
         tokio::select! {
@@ -591,6 +620,7 @@ async fn chat(
                 if !writer.connected().await? { return Err("BLE disconnected; rerun to reconnect".into()); }
             }
             _ = announce_tick.tick() => {
+                if !can_announce(wait_for_announcement, receiver.peers.len()) { continue; }
                 let mut packet = Packet::new(ANNOUNCE, local, now_ms(), announce_payload.clone());
                 packet.sign(&signing)?;
                 send(&writer, &packet, limit, &output).await?;
@@ -626,6 +656,15 @@ async fn chat(
                 if notification.uuid != CHARACTERISTIC { continue; }
                 output.diagnostic(&format!("[rx] value_bytes={} type={:?}", notification.value.len(), notification.value.get(1)))?;
                 if let Err(error) = receiver.receive(&notification.value, &output) { output.diagnostic(&format!("[drop] {error}"))?; }
+                if !initial_sent && can_announce(wait_for_announcement, receiver.peers.len()) {
+                    limit = writer.write_limit(configured_limit)?;
+                    #[cfg(windows)]
+                    if let LinkWriter::WindowsHost(host) = &writer {
+                        output.diagnostic(&format!("[host] inbound signed peer; session ATT MTU={} bytes, notification limit={limit}", host.att_mtu()?))?;
+                    }
+                    send(&writer, &initial_announce, limit, &output).await?;
+                    initial_sent = true;
+                }
             }
         }
     }
@@ -867,6 +906,13 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_waits_for_a_validated_peer_before_initial_notification() {
+        assert!(can_announce(false, 0)); // Existing phone-client behavior.
+        assert!(!can_announce(true, 0));
+        assert!(can_announce(true, 1));
+    }
 
     #[test]
     fn host_mode_is_explicit_and_exclusive() {

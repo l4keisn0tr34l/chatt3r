@@ -1,7 +1,7 @@
 # codex handoff: chatt3r
 
-last reviewed after `a241f3c`. this is a **snapshot**, not evidence of a
-subsequent hardware run. check `git status`, `git log -5 --oneline`, the current
+last reviewed while preparing a Windows-host startup fix after `3d6e097`.
+this is a **snapshot**, not evidence of a subsequent hardware run. check `git status`, `git log -5 --oneline`, the current
 code, and [laptop-to-laptop.md](laptop-to-laptop.md) before updating a claim.
 
 ## purpose and evidence
@@ -46,7 +46,7 @@ receive notifications                     ←  NotifyValueForSubscribedClientAsy
   transports; no automatic replay of user messages after chat starts.
 - `desktop/bitchat-terminal/src/baseline/windows_gatt.rs`: Windows-only
   `GattHost::start`, `wait_for_client`, `connected`, `write`, `process_write`,
-  advertisement event/status diagnostics and cleanup. it serves **one**
+  session ATT MTU cap, advertisement event/status diagnostics and cleanup. it serves **one**
   subscribed central, not an authenticated named Linux identity. current
   diagnostic replies: `0x03` disallowed writer/subscription change, `0x07`
   nonzero offset, `0x0d` bad value length, `0x11` inbound queue full/closed.
@@ -87,7 +87,12 @@ that the iphone app was closed. the Windows host originally reported
 "advertisement not usable"; a later fix waits through transient `Stopped`,
 logs the Windows BluetoothError, and accepts a **partial** advertisement only
 as a reason to try a Linux scan, not proof the service UUID was on air. there
-has been no confirmed retest of the latest Windows diagnostic build.
+has been no confirmed retest of the latest Windows diagnostic build. the host
+previously sent its first notification **immediately** after subscription;
+if that notify failed, it would exit and drop the GATT service before Linux
+could write. the new code waits for a validated inbound announcement and
+limits host notifications to `GattSession.MaxPduSize - 3`. this is a plausible
+race/MTU fix, **not** a proven root cause; obtain the PC console output.
 
 ### next decisive test, in order
 

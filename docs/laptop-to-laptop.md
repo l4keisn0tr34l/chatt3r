@@ -58,7 +58,12 @@ existing bitchat packet validation + peer state + terminal UI on both sides
 the new windows `--host` path uses `GattServiceProvider` to advertise the
 service, owns a notify/write `GattLocalCharacteristic`, and uses a single
 ordered worker for incoming writes. it restricts the session to one subscribed
-central and uses the existing signed packet/chat validation for text. no
+central and uses the existing signed packet/chat validation for text. the
+host now **waits for an inbound signed announcement before its first notify**
+rather than sending immediately on subscription; outgoing frames are capped
+to its session's reported ATT MTU minus three bytes. this targets a possible
+early-notification disconnect; it is Windows-target compile-checked, **not**
+verified on the PC. no
 automatic replay after disconnection; provider and event handler are cleaned
 up when the host exits. bluetooth device pairing is **not** an app-layer trust
 mechanism, and signed packets are not encrypted.

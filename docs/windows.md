@@ -103,11 +103,13 @@ CHATT3R_LE_PEER= ./scripts/chatt3r --debug --scan-seconds 90 --name laptop
 that command**; it does not erase the saved phone address or its pairing.
 the scan-only command is read-only and exits after 30 seconds. if it finds a
 live candidate with the BitChat service, run the final command while the
-windows host is still advertising. on windows, look for `one central subscribed` (this alone does **not** prove
-which device connected); on linux, look for `connected and subscribed`, peer
-announcements and text on
-**both** terminals. send a short `hi from laptop` and `hi from pc` and record
-which arrived. `--debug` may log public message contents and peer ids.
+windows host is still advertising. on windows, look for `one central
+subscribed` (this alone does **not** prove which device connected). the host
+now waits for a **signed incoming announcement** before its first notification;
+`--debug` then shows the session ATT MTU and capped frame limit. on linux,
+look for `connected and subscribed`, peer announcements and text on **both**
+terminals. send a short `hi from laptop` and `hi from pc` and record which
+arrived. `--debug` may log public message contents and peer ids.
 
 if the windows host starts but linux sees no live service, capture both debug
 logs and the adapter model. if linux sees **multiple unnamed candidates**, it
