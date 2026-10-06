@@ -21,7 +21,7 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | photos, voice notes, arbitrary files | not supported by chatt3r yet |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
-| linux ↔ windows pc text | linux subscribed to one of two unnamed candidates; first announcement write failed (`ATT 0x11`). windows host log/peer identity and two-way text **not verified** |
+| linux ↔ windows pc text | windows host physically advertised and got a subscriber/write, then our too-strict subscription handler rejected it (`ATT 0x03`); fix awaiting physical retest. **no confirmed signed text** |
 
 the user confirmed an iphone ↔ linux text exchange on the direct le path with
 the iphone offline. exact wifi/cellular switch states, multiple repetitions,
@@ -246,11 +246,11 @@ procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
 
 1. **harden text:** repeated offline tests, saved preferences, reliable reconnects,
    larger-message support, and a cleaner desktop core.
-2. **remove the phone dependency:** the experimental windows native gatt host
-   compiles and has an operator test procedure, but a linux → candidate
-   announcement write returned `ATT 0x11` after subscription and the windows
-   console log is still missing. identify which of two unnamed candidates was
-   actually contacted, resolve the failed write, and prove text both ways.
+2. **remove the phone dependency:** a different windows pc actually
+   advertised, subscribed a central and received a write. our handler
+   mistook a momentary empty subscription snapshot for permanent disconnect
+   and rejected that write; the new policy awaits a hardware retest. verify
+   signed text in both directions in **one simultaneous linux ↔ windows run**.
    linux ↔ linux still needs a working advertising adapter and a linux gatt
    server; local bluez registration fails on this controller. see
    [docs/laptop-to-laptop.md](docs/laptop-to-laptop.md).
@@ -269,6 +269,7 @@ desktop/bitchat-terminal/            included rust source, not a submodule
   src/baseline/ui.rs                 line editing and peer colors
   src/baseline/linux_att.rs          opt-in linux direct le/gatt transport
   src/baseline/windows_gatt.rs       experimental native windows gatt host
+  src/baseline/host_policy.rs        single-central subscription checks
   test-vectors/                     shared packet fixtures
   tests/ui-smoke.py                  linux terminal tests
 tests/launcher-smoke.py              launcher tests without bluetooth

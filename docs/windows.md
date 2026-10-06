@@ -2,9 +2,10 @@
 
 **status: experimental.** the user confirmed **windows → iphone** text with
 the native ble central/client; iphone → windows has not been separately
-confirmed. a new, windows-target-compile-checked `--host` gatt peripheral can
-advertise to the linux laptop, but **no real pc ↔ linux advertisement, gatt
-exchange, or text has been observed yet**. please share the exact stage/error
+confirmed. on a different windows pc, `--host` **did** advertise, get a
+subscriber and receive an ATT write, but rejected it due to a transient
+subscription snapshot. the fix has not yet been tested on that pc. **no
+signed pc ↔ linux text has been observed yet**. please share the exact stage/error
 rather than unpairing or assuming a successful scan means chat works.
 
 skip wsl for the first attempt: wsl2 normally doesn't expose the windows
@@ -14,7 +15,8 @@ bluetooth adapter as a linux `hci` device. use **powershell on windows itself**.
 
 1. use windows 10/11 with a bluetooth le adapter; enable bluetooth in windows
    settings. a listed bluetooth device doesn't prove peripheral/advertising
-   support — that separate capability is still untested.
+   support. one tested pc did reach `advertisement: started`; don't assume a
+   different pc/adapter can host GATT.
 2. install [git for windows](https://git-scm.com/download/win),
    [rustup for windows](https://rustup.rs), and
    [visual studio build tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
@@ -33,11 +35,10 @@ $client = '.\desktop\bitchat-terminal\target\debug\chatt3r.exe'
 & $client --help
 ```
 
-the central/client build worked on the user's windows pc. the new `--host`
-server build and radio behavior have **not** been tested there; a windows-target
-`cargo check` passed on linux. if it fails on your pc, save the first full
-compiler error and your windows/bluetooth adapter details. `scripts/chatt3r` is a **bash/linux launcher**, not
-a powershell script. running the binary directly needs `--write-limit` for
+the central/client worked on one Windows pc. the `--host` build **ran and
+advertised on another**; the new subscription fix is not yet hardware-tested.
+if a build fails, save its first full compiler error and adapter details.
+`scripts/chatt3r` is a **bash/linux launcher**, not a powershell script. running the binary directly needs `--write-limit` for
 chat; `128` below is an operator-selected starting limit, **not a measured mtu**.
 
 ## first physical check: windows ↔ iphone
@@ -126,8 +127,13 @@ logs and the adapter model. if linux sees **multiple unnamed candidates**, it
 could select the iphone instead of the pc: close the iphone app (no unpairing)
 and correlate the Windows console's `one central subscribed` with Linux's
 connection before concluding the pc link works. one Linux hardware attempt discovered and subscribed but its
-first announcement write returned ATT `0x11`; the Windows-side result is not
-yet recorded. the host now prints **inbound write queued/rejected** with
+first announcement write returned ATT `0x11`. a separate Windows run on
+another PC reached advertisement `started` and a subscriber but rejected an
+inbound write with `0x03` after its subscriber list briefly appeared empty.
+those are **not confirmed to be the same link**. the fixed host waits through
+a transient empty snapshot; it still ends a sustained disconnect or refuses
+a different/multiple central(s). check for `[host] inbound GATT frame queued`
+on the next physical run, not just `one central subscribed`. the host logs
 reasons but not remote addresses or text. `0x11` can also come from a different
 GATT server, so check both consoles before changing the frame size.
 
@@ -176,8 +182,9 @@ message replay is implemented.
 windows `--host` now uses the native windows gatt service provider instead of
 btleplug's central path; both roles feed the same signed packet/chat code.
 this linux laptop's realtek adapter still rejects **local** advertising, but
-it can scan/connect as a central. windows peripheral capability and real
-advertising have **not been checked on the pc**. see
+it can scan/connect as a central. the other Windows PC has shown an actual
+`started` host and inbound write, **not yet a signed message or notification
+received on both machines**. see
 [laptop-to-laptop.md](laptop-to-laptop.md) for the transport/role plan. do not
 call a two-laptop exchange working until packets appear on both machines
 without a phone.

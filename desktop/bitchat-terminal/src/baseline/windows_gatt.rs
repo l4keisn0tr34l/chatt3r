@@ -1,7 +1,10 @@
 //! Native Windows peripheral role. This is separate from btleplug's proven
 //! central path; it advertises one GATT service and receives writes from one
 //! subscribed Linux central. Hardware interoperability still needs a PC test.
-use super::{Result, CHARACTERISTIC, SERVICE};
+use super::{
+    host_policy::{assess, within_disconnect_grace, SubscriberState},
+    Result, CHARACTERISTIC, SERVICE,
+};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc as blocking, Arc, Mutex,
@@ -164,6 +167,7 @@ pub struct GattHost {
     provider: GattServiceProvider,
     characteristic: GattLocalCharacteristic,
     client: Mutex<Option<GattSubscribedClient>>,
+    missing_since: Mutex<Option<Instant>>,
     chosen: Arc<Mutex<Option<String>>>,
     lost: Arc<AtomicBool>,
     write_token: i64,
@@ -269,13 +273,23 @@ impl GattHost {
                 if let Some(sender) = sender.as_ref() {
                     let original = event_chosen.lock().unwrap().clone();
                     if let Some(original) = original {
-                        let same = sole_client(sender)?.is_some_and(|client| {
-                            device_id(&client).is_ok_and(|id| id == original)
-                        });
-                        if !same && !event_lost.swap(true, Ordering::SeqCst) {
-                            eprintln!(
-                                "[host] subscription changed; refusing to switch central peers"
-                            );
+                        let clients = sender.SubscribedClients()?;
+                        let count = clients.Size()?;
+                        let only = if count == 1 {
+                            Some(device_id(&clients.GetAt(0)?)?)
+                        } else {
+                            None
+                        };
+                        match assess(&original, count, only.as_deref()) {
+                            SubscriberState::Same => {}
+                            SubscriberState::TemporarilyMissing => {
+                                eprintln!("[host] subscriber snapshot empty; checking for a sustained disconnect rather than blacklisting the central");
+                            }
+                            SubscriberState::Conflicting => {
+                                if !event_lost.swap(true, Ordering::SeqCst) {
+                                    eprintln!("[host] different or multiple subscribed centrals; refusing to switch peers");
+                                }
+                            }
                         }
                     }
                 }
@@ -316,6 +330,7 @@ impl GattHost {
             provider,
             characteristic,
             client: Mutex::new(None),
+            missing_since: Mutex::new(None),
             chosen,
             lost,
             write_token,
@@ -408,10 +423,35 @@ impl GattHost {
         let Some(original) = self.client.lock().unwrap().clone() else {
             return Ok(false);
         };
-        let Some(current) = sole_client(&self.characteristic)? else {
-            return Ok(false);
-        };
-        Ok(device_id(&original)? == device_id(&current)?)
+        let clients = self.characteristic.SubscribedClients()?;
+        match clients.Size()? {
+            0 => {
+                // A short empty CCCD snapshot is not evidence that the
+                // selected link was replaced. A sustained absence is fatal;
+                // no user message is replayed while waiting.
+                let mut missing = self.missing_since.lock().unwrap();
+                let since = missing.get_or_insert_with(Instant::now);
+                let within_grace = within_disconnect_grace(since.elapsed());
+                if !within_grace {
+                    eprintln!(
+                        "[host] subscriber absent for at least 2s; ending chat without replay"
+                    );
+                }
+                Ok(within_grace)
+            }
+            1 => {
+                *self.missing_since.lock().unwrap() = None;
+                let same = device_id(&original)? == device_id(&clients.GetAt(0)?)?;
+                if !same {
+                    eprintln!("[host] subscribed central changed; ending chat without replay");
+                }
+                Ok(same)
+            }
+            _ => {
+                eprintln!("[host] multiple subscribed centrals; ending chat without replay");
+                Ok(false)
+            }
+        }
     }
 
     pub async fn write(&self, frame: &[u8]) -> Result<()> {

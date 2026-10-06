@@ -1,8 +1,9 @@
 # codex handoff: chatt3r
 
-last reviewed after `48c32d8` and a user report of Windows GATT service
-creation failure. this is a **snapshot**, not proof of a two-PC radio link. check `git status`, `git log -5 --oneline`, the current
-code, and [laptop-to-laptop.md](laptop-to-laptop.md) before updating a claim.
+last reviewed after a Windows host log showing a real advertisement,
+subscription, and an incorrectly rejected write. this is a **snapshot**, not
+proof of two-PC signed text. check `git status`, `git log -5 --oneline`, code,
+and [laptop-to-laptop.md](laptop-to-laptop.md) before updating a claim.
 
 ## purpose and evidence
 
@@ -18,7 +19,7 @@ application delivery receipts, or full live-session reconnect are implemented.
 | stock iphone ↔ linux | bidirectional public text user-confirmed on real BLE hardware, including an offline run via Linux direct LE |
 | windows → stock iphone | user-confirmed text with the native Windows central client; iphone → windows **not** separately confirmed |
 | two simulated desktop peers | signed text both directions, fragmentation, duplicate suppression and rejection unit-tested; **no radio** |
-| linux ↔ windows pc | Linux discovered two unnamed live BitChat candidates, connected to **one**, found `WRITE | NOTIFY`, subscribed and tried an announcement; first write failed with ATT `0x11`. Windows console output was not provided, so **the candidate's identity, Windows advertisement, write reception and two-way packets are unverified** |
+| linux ↔ windows pc | **separate runs/devices:** Linux discovered two unnamed candidates, subscribed to one and got ATT `0x11` on first write. On a different Windows PC, the host advertised (`started`), got one subscriber and rejected an inbound write with `0x03` because of a transient empty-subscriber snapshot. The fix is software-tested; **no simultaneous signed text exchange is verified** |
 | linux ↔ linux | no physical peer test. local Realtek adapter rejected even a temporary BlueZ advertisement (`Invalid Parameters (0x0d)`) |
 
 avoid collapsing discovery, GATT subscription, app-layer signed announcement and
@@ -47,7 +48,11 @@ receive notifications                     ←  NotifyValueForSubscribedClientAsy
 - `desktop/bitchat-terminal/src/baseline/windows_gatt.rs`: Windows-only
   `GattHost::start`, `wait_for_client`, `connected`, `write`, `process_write`,
   session ATT MTU cap, advertisement event/status diagnostics and cleanup. it serves **one**
-  subscribed central, not an authenticated named Linux identity. current
+  subscribed central, not an authenticated named Linux identity. the previous
+  subscription handler permanently latched a transient empty snapshot;
+  [host_policy.rs](../desktop/bitchat-terminal/src/baseline/host_policy.rs)
+  now treats zero as temporary, checks for a sustained two-second absence,
+  and still rejects another or multiple centrals. current
   diagnostic replies: `0x03` disallowed writer/subscription change, `0x07`
   nonzero offset, `0x0d` bad value length, `0x11` inbound queue full/closed.
   the **earlier** Windows version returned `0x11` for several unrelated
@@ -82,33 +87,41 @@ the user reported this Linux trace (identifiers omitted here):
 Error: "BLE write failed: Operation failed with ATT error: 0x11"
 ```
 
-**we have not received the corresponding Windows host output** or confirmation
-that the iphone app was closed. the Windows host originally reported
-"advertisement not usable"; a later fix waits through transient `Stopped`,
-logs the Windows BluetoothError, and accepts a **partial** advertisement only
-as a reason to try a Linux scan, not proof the service UUID was on air. there
-a later attempt reported `GATT service creation failed: BluetoothError`
-without the Windows enum number. that attempt failed **before advertising**;
-ask for the complete error and whether another host process was still open.
-the host previously sent its first notification **immediately** after subscription;
-if that notify failed, it would exit and drop the GATT service before Linux
-could write. the new code waits for a validated inbound announcement and
-limits host notifications to `GattSession.MaxPduSize - 3`. this is a plausible
-race/MTU fix, **not** a proven root cause; obtain the PC console output.
+a *later run on another Windows PC* did supply a host trace (identifiers
+omitted here):
+
+```text
+[host] default Windows adapter peripheral role supported: true
+[host] advertisement: aborted (3), bluetooth: success (0)
+[host] advertisement: started (2), bluetooth: success (0)
+[host] one central subscribed
+[host] waiting for a signed peer announcement before notifying
+[host] subscription changed; refusing to switch central peers
+[host] inbound write rejected: subscription changed; rerun the host (ATT 0x03)
+Error: "BLE disconnected; rerun to reconnect"
+```
+
+**root cause for that Windows-side rejection:** the `SubscribedClientsChanged`
+handler called an empty *instantaneous* subscriber list a permanent loss, even
+though an inbound write then arrived. the new policy treats zero as transient
+and the regular link check ends chat after a sustained absence; a different
+or multiple central(s) still fail closed. this policy is unit-tested but **not
+hardware-retested**. an `aborted/success` event preceded `started/success`,
+so the Windows PC *did* start advertising; do not misreport that radio as
+incapable. prior failures on this or another PC are separate evidence.
+
+also, the host now waits for a validated inbound announcement before its
+first notification and caps host output to `GattSession.MaxPduSize - 3`; that
+was an earlier race hypothesis, not the demonstrated subscription-policy bug.
 
 ### next decisive test, in order
 
-1. first resolve the latest **pre-advertisement service creation error**:
-   after pulling the updated diagnostic build, record its named/numeric
-   BluetoothError and the adapter's peripheral-role result. if it says
-   `resource_in_use`, close any prior `chatt3r.exe --host` process and retry
-   once; otherwise do not guess. when creation succeeds, ask for the existing
-   Windows terminal output around the Linux `0x11` run: ad status/error,
-   subscription line, whether it stayed running, and whether stock BitChat was
-   open on the iphone. don't share
-   device addresses or private logs. an old `Linux subscribed` label was
-   misleading; the updated text is `one central subscribed` because the host
-   has not identified the central.
+1. use the **same Windows PC** that just proved advertising and the updated
+   build. distinguish its startup from the earlier Linux `0x11` log, which
+   may have been a different candidate/device. capture any new
+   `subscriber snapshot empty`, accepted/rejected write and session ATT MTU
+   lines. don't publish addresses or other private logs. `one central
+   subscribed` still does not authenticate the device as Linux.
 2. close the iphone **app** for a clean one-host test (leave bonds/settings
    intact). on Windows, update the checkout (if no conflicting local edits),
    build and run as a normal user in PowerShell:
@@ -153,7 +166,7 @@ cargo clippy --offline --locked --target x86_64-pc-windows-gnu --manifest-path d
 
 `rustup target add x86_64-pc-windows-gnu` may be required for cross-check;
 Cargo may need a one-time online fetch. those checks **do not exercise Windows
-Bluetooth**. previous local runs passed 4 legacy unit tests, 28 `chatt3r`
+Bluetooth**. the latest local run passed 4 legacy unit tests, 32 `chatt3r`
 unit tests (2 interactive cases intentionally ignored), launcher smoke and
 4 Linux terminal PTY cases; Windows-target check/Clippy passed. new code must
 be tested again. do not run WinRT host code on Linux or recommend WSL as a

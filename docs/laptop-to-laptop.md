@@ -1,21 +1,21 @@
 # laptop ↔ laptop: remove the phone dependency
 
-status: **native windows GATT server backend implemented, Windows-target
-compile-checked; hardware link untested.** `chatt3r --host` advertises the
-BitChat service, receives characteristic writes and sends notifications.
-Linux can scan/connect as a central. **next hardware checkpoint:** the laptop
-saw two unnamed live BitChat candidates, connected to one, discovered the
-notify/write characteristic and subscribed. its **first signed announcement
-write failed with ATT `0x11`**; no two-desktop packet exchange is confirmed.
-on a later Windows run, the user reported `GATT service creation failed:
-BluetoothError` without the numeric code. that error is **before** advertising;
-the PC's complete named/numeric error is required before deciding whether
-this is unsupported hosting, an occupied resource, or something else.
-the Windows host console output is still needed to establish whether this
-candidate was the PC rather than the other advertising device. even a Windows
-subscription line indicates *a* central, not its authenticated identity. windows →
-stock iphone text is user-confirmed; iphone → windows is not separately
-confirmed. linux ↔ iphone is user-confirmed bidirectional and offline. a
+status: **windows GATT server physically started; signed two-desktop text
+unproven.** on a different Windows PC, the host reported BLE peripheral
+support, advertisement `started`, a subscribed central and an inbound write.
+our handler then **incorrectly latched a transient empty subscriber snapshot**,
+rejected that write with ATT `0x03` and shut down. the fix treats zero clients
+as transient until a two-second link check sees a sustained absence; a
+*different* or multiple subscribers still fail closed. this fix is unit-tested
+and Windows-target compile-checked, **not yet retested on hardware**.
+
+an earlier Linux run saw two unnamed live BitChat candidates, connected to
+one, found notify/write and subscribed; its first signed announcement write
+failed with ATT `0x11`. this was not necessarily the same Windows machine or
+run, so do not combine those logs into a proven Linux ↔ PC exchange. no
+signed two-desktop packet has been observed on both terminals. windows →
+stock iphone text is user-confirmed on a Windows central client; iphone →
+windows is not separately confirmed. linux ↔ iphone is user-confirmed bidirectional and offline. a
 software-only test covers signed two-peer text, fragmentation, rejection and
 deduplication, but it does not use BLE. bluetooth does **not** require an iphone
 or manual settings pairing.
@@ -44,10 +44,12 @@ or manual settings pairing.
   working LE advertising. try a separately tested adapter or a minimal BlueZ
   D-Bus registration on this one before building the full server. do not
   restart bluetooth or delete bonds just to mask this error.
-- **not measured yet:** stable advertisement from windows seen by this laptop,
-  inbound GATT write/notify, concurrent scanning, or actual windows peripheral
-  capability. native Windows `GattServiceProvider` APIs compile-check for a
-  Windows target; that does not prove the PC adapter supports them.
+- **observed on the other Windows PC:** peripheral-role report `true`,
+  advertisement `started`, one central subscription and an inbound ATT write
+  rejected by our host. **not yet observed:** a signed announcement arriving
+  in the Windows chat, a Windows notification received by Linux, or text on
+  both terminals without the phone. separate the earlier Linux and later
+  Windows logs by run/device until a simultaneous test confirms identity.
 
 ## planned data flow
 
@@ -65,10 +67,11 @@ ordered worker for incoming writes. it restricts the session to one subscribed
 central and uses the existing signed packet/chat validation for text. the
 host now **waits for an inbound signed announcement before its first notify**
 rather than sending immediately on subscription; outgoing frames are capped
-to its session's reported ATT MTU minus three bytes. this targets a possible
-early-notification disconnect; it is Windows-target compile-checked, **not**
-verified on the PC. no
-automatic replay after disconnection; provider and event handler are cleaned
+to its session's reported ATT MTU minus three bytes. that earlier race fix
+was not yet isolated by hardware. the later observed bug was the too-strict
+subscriber-change handler; an empty snapshot now gets a short grace period,
+while an actual conflicting central fails closed. no automatic replay after
+disconnection; provider and event handler are cleaned
 up when the host exits. bluetooth device pairing is **not** an app-layer trust
 mechanism, and signed packets are not encrypted.
 
@@ -98,26 +101,23 @@ before promising resumed chat or files.
 
 ## next proof, in order
 
-1. on Windows, run `chatt3r.exe --host --write-limit 128 --debug`: record
-   peripheral-role support, GATT creation and advertising status **plus**
-   BluetoothError event. `stopped` immediately after start may be transient;
-   wait up to 10 seconds. `started_without_all_advertisement_data` is only a
-   partial start: verify the service UUID from a Linux scan, not from this
-   status alone. stop on a capability or aborted/timed-out advertisement;
-   no pairing changes.
+1. on the **same Windows PC** that showed `started` and received a write,
+   rebuild the updated `chatt3r.exe --host --write-limit 128 --debug`. log
+   advertising and whether `subscriber snapshot empty` is followed by a
+   recovered client, an accepted inbound frame, or a sustained disconnect.
+   an initial `aborted/success` followed by `started/success` was observed;
+   don't treat that transient event alone as a failed radio. no pairing changes.
 2. on linux, disable its local known-iphone shortcut for this command with
    `CHATT3R_LE_PEER= ./scripts/chatt3r --scan-only --scan-seconds 30`. confirm
    an actual BitChat service radio update from the Windows PC. see
    [windows.md](windows.md) for the complete two-machine run.
-3. connect Linux as central. discovery and subscription have been observed on
-   one of two unnamed candidates, but the first announcement write returned
-   ATT `0x11`. check whether the Windows console reports `one central
-   subscribed` at the same time; otherwise Linux may have chosen the phone. with the phone app
-   closed, collect both debug logs. the Windows host now logs rejection
-   categories and sends distinct ATT errors for a disallowed writer (`0x03`),
-   nonzero offset (`0x07`), bad length (`0x0d`) and a full/closed queue
-   (`0x11`). only then verify a central write, Windows notification and
-   signed `hi` text on both terminals.
+3. connect Linux as central with the phone app closed; collect **simultaneous**
+   debug logs on this PC and laptop. an earlier Linux run failed with ATT
+   `0x11`, while a later Windows run rejected an inbound write with `0x03`.
+   do not assume they were the same run or device. the new host accepts a
+   briefly recovered subscriber but still rejects a different/multiple
+   central(s). confirm queued frames, signed peer announcements, one Windows
+   notification received by Linux and signed `hi` text on both terminals.
 4. test disconnect behavior, more than one central, malformed frames and
    message size limits. the startup retry code must never resend an ambiguous
    message. Windows host should fail closed instead of switching central peers.

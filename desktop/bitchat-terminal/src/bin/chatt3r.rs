@@ -1,6 +1,9 @@
 //! Minimal hardware interoperability harness, not a full BitChat client.
 #[path = "../baseline/discovery.rs"]
 mod discovery;
+#[cfg(any(windows, test))]
+#[path = "../baseline/host_policy.rs"]
+mod host_policy;
 #[cfg(target_os = "linux")]
 #[path = "../baseline/linux_att.rs"]
 mod linux_att;
