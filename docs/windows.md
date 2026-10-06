@@ -1,13 +1,14 @@
 # trying chatt3r on windows
 
-**status: experimental.** the user confirmed **windows → iphone** text with
-the native ble central/client; iphone → windows has not been separately
-confirmed. on a different windows pc, `--host` **did** advertise, get a
-subscriber and receive an ATT write, but rejected it after a subscription
-change. a later run still rejected a write after a **different or multiple
-subscriber** warning; the current code logs the subscriber count to tell
-those apart. **no signed pc ↔ linux text has been observed yet**. please share the exact stage/error
-rather than unpairing or assuming a successful scan means chat works.
+**status: one-subscriber hardware success, not a finished peer.** the user
+confirmed **linux ↔ windows pc public text** over BLE with the iphone's
+Bluetooth off: Linux received the signed `windows-pc` announcement and the
+Windows replies `yo` and `ok got it`, and the user confirmed the exchange.
+when the phone was nearby with Bluetooth on, the Windows host reported **two
+subscribers** and refused the inbound write. phone-off was a test isolation
+step, not an intended long-term requirement; no private messages, files,
+delivery receipts or live-session reconnect. windows → iphone text also worked
+on a different pc; iphone → windows has not been separately confirmed.
 
 skip wsl for the first attempt: wsl2 normally doesn't expose the windows
 bluetooth adapter as a linux `hci` device. use **powershell on windows itself**.
@@ -36,8 +37,8 @@ $client = '.\desktop\bitchat-terminal\target\debug\chatt3r.exe'
 & $client --help
 ```
 
-the central/client worked on one Windows pc. the `--host` build **ran and
-advertised on another**; the new subscription fix is not yet hardware-tested.
+the central/client worked on one Windows pc. `--host` advertised and
+exchanged text with Linux on another pc under one-subscriber test conditions.
 if a build fails, save its first full compiler error and adapter details.
 `scripts/chatt3r` is a **bash/linux launcher**, not a powershell script. running the binary directly needs `--write-limit` for
 chat; `128` below is an operator-selected starting limit, **not a measured mtu**.
@@ -72,7 +73,9 @@ or assume wsl will provide it.
 ## laptop ↔ windows pc: try the new host role
 
 both computers need the updated commit. **windows advertises; linux scans.**
-keep the iphone out of this test. on windows, from your existing checkout in
+for a reproducible one-subscriber test, keep the iphone out of BLE range or
+briefly turn off its Bluetooth (no unpairing). keeping BitChat closed alone
+wasn't enough to avoid a second Windows subscriber in previous runs. on windows, from your existing checkout in
 powershell (or repeat the clone/build setup above):
 
 ```powershell
@@ -123,22 +126,21 @@ look for `connected and subscribed`, peer announcements and text on **both**
 terminals. send a short `hi from laptop` and `hi from pc` and record which
 arrived. `--debug` may log public message contents and peer ids.
 
-if the windows host starts but linux sees no live service, capture both debug
-logs and the adapter model. if linux sees **multiple unnamed candidates**, it
-could select the iphone instead of the pc: close the iphone app (no unpairing)
-and correlate the Windows console's `one central subscribed` with Linux's
-connection before concluding the pc link works. one Linux hardware attempt discovered and subscribed but its
-first announcement write returned ATT `0x11`. later Windows runs on another PC reached advertisement `started` and a
-subscriber but rejected inbound writes with `0x03`: the first saw an empty
-subscriber snapshot; the next saw a **different or multiple** subscriber(s).
-these are **not confirmed to be the same Linux link**. the host now prints
-`subscriber conflict: count=...` and, if a write follows, match booleans
-without displaying device IDs. `count=1` with a changed ID needs a different
-fix from `count>1` (another subscribing device). close the iphone app, then
-check for `[host] inbound GATT frame queued`
-on the next physical run, not just `one central subscribed`. the host logs
-reasons but not remote addresses or text. `0x11` can also come from a different
-GATT server, so check both consoles before changing the frame size.
+if Windows reports `subscriber conflict: count=2`, the current host stops
+rather than guessing which client to use. that happened with the phone's
+Bluetooth on; the phone wasn't proven to be the second subscriber, but
+turning its Bluetooth off allowed signed text in both directions. don't
+unpair or reset the PC. with phone Bluetooth still on, record simultaneous
+logs from both devices before designing selective multi-subscriber support.
+`count=1` with a changed ID is a different failure. if Linux finds multiple
+unnamed candidates, correlate its selected peer's signed announcement with
+the Windows terminal, not just the scan name.
+
+an earlier Linux attempt failed with ATT `0x11` on an unknown candidate.
+Windows later rejected writes with `0x03` during conflicting subscriptions;
+neither error alone diagnoses MTU. in the successful one-subscriber run,
+`128`-byte frames and two-way text worked. the host logs queued/rejected
+frames without remote addresses or text.
 
 if linux sees the service but the generic BlueZ
 connection picks classic/audio instead, don't unpair devices: that needs a
@@ -180,14 +182,11 @@ gatt/subscription, preserve that exact error. don't remove bonds or restart
 the adapter as a first response. no automatic live-session reconnect or
 message replay is implemented.
 
-## pc ↔ linux remains hardware-unverified
+## pc ↔ linux: proven one link, not robust peer selection
 
-windows `--host` now uses the native windows gatt service provider instead of
-btleplug's central path; both roles feed the same signed packet/chat code.
-this linux laptop's realtek adapter still rejects **local** advertising, but
-it can scan/connect as a central. the other Windows PC has shown an actual
-`started` host and inbound write, **not yet a signed message or notification
-received on both machines**. see
-[laptop-to-laptop.md](laptop-to-laptop.md) for the transport/role plan. do not
-call a two-laptop exchange working until packets appear on both machines
-without a phone.
+windows `--host` uses native Windows GATT, while Linux scans as a central;
+both roles feed the shared signed packet/chat code. two-way public text is
+user-confirmed on real BLE hardware without a phone link. the one-subscriber
+host still fails closed if another central subscribes. Linux-only advertising
+is still blocked on this laptop's Realtek controller. see
+[laptop-to-laptop.md](laptop-to-laptop.md) for evidence and next steps.

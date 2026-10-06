@@ -1,163 +1,107 @@
 # codex handoff: chatt3r
 
-last reviewed after two Windows host logs showing real advertisement,
-subscription, and rejected writes with different subscriber-state reports. this is a **snapshot**, not
-proof of two-PC signed text. check `git status`, `git log -5 --oneline`, code,
-and [laptop-to-laptop.md](laptop-to-laptop.md) before updating a claim.
+current snapshot: **user-confirmed two-way public text over BLE between the
+Linux laptop and Windows PC, with iphone Bluetooth off.** this is one physical
+session, not a finished multi-device link. check `git status`, current code
+and [laptop-to-laptop.md](laptop-to-laptop.md) before updating claims.
 
 ## purpose and evidence
 
-make an infrastructure-free, cross-platform nearby link for **text and files**,
-starting with BLE. stock BitChat is the compatibility reference, not code we
-claim to have invented. favor a direct peer link over mesh. [context.md](../context.md)
-is a long-term roadmap; some old priorities in it and the user's local
-`codexguide.md` predate the Windows host work. no files, private messages,
-application delivery receipts, or full live-session reconnect are implemented.
+build an infrastructure-free cross-platform link for nearby **text and files**.
+BitChat supplies the protocol/compatibility reference, not an invention we
+claim as ours. [context.md](../context.md) describes the long-term goal, not
+what is shipped. no files, private messages, delivery receipts or full
+live-session reconnect are implemented.
 
-| path | actual evidence |
+| path | evidence |
 | --- | --- |
-| stock iphone ↔ linux | bidirectional public text user-confirmed on real BLE hardware, including an offline run via Linux direct LE |
-| windows → stock iphone | user-confirmed text with the native Windows central client; iphone → windows **not** separately confirmed |
-| two simulated desktop peers | signed text both directions, fragmentation, duplicate suppression and rejection unit-tested; **no radio** |
-| linux ↔ windows pc | **separate runs/devices:** Linux discovered two unnamed candidates, subscribed to one and got ATT `0x11` on first write. On a different Windows PC, the host advertised (`started`), got one subscriber and rejected writes with `0x03`. One run saw an empty subscriber snapshot; a second reported different or multiple subscribed centrals. **No simultaneous signed text exchange is verified** |
-| linux ↔ linux | no physical peer test. local Realtek adapter rejected even a temporary BlueZ advertisement (`Invalid Parameters (0x0d)`) |
+| stock iphone ↔ linux | bidirectional public text user-confirmed on physical BLE; includes an iphone-offline Linux direct-LE run |
+| windows → iphone | user-confirmed native Windows BLE client text; iphone → windows not separately confirmed |
+| linux ↔ windows pc | **user-confirmed two-way public text over BLE with iphone Bluetooth off.** Linux received signed `windows-pc` announcement and text `yo`, `ok got it`; Linux sent `hi`, `yoooooooo`. Windows-side transcript and Wi-Fi/cellular switch states weren't recorded |
+| linux ↔ linux | not working; this laptop's Realtek adapter rejected a temporary BlueZ advertisement (`Invalid Parameters (0x0d)`) |
+| software-only simulated peers | signed two-way text, fragmented frames, duplicate/rejection tests; **not** radio evidence |
 
-avoid collapsing discovery, GATT subscription, app-layer signed announcement and
-received text into a single notion of "connected". text is limited to **99
-UTF-8 bytes**, public and **not encrypted**. `128` is an operator-configured
-frame limit, **not** a measured MTU. the initial Linux announcement at that
-limit had two frames. ACKs are only GATT-level; delivery to an application is
-not confirmed. signing identities are ephemeral per run, not an established
-trust relationship.
+public text is **not encrypted**. signing identities are ephemeral for each
+run, not trusted device pairing. maximum text is **99 UTF-8 bytes**. the
+launcher's `128`-byte frame limit is operator-selected, **not a measured MTU**.
+a successful GATT write is not an application delivery receipt. never replay
+an ambiguous message after link failure.
 
-## current architecture and where to look
+## architecture checkpoint: proven one-link text
 
 ```text
-linux central (btleplug)                     windows peripheral (WinRT)
-scan service UUID + fresh radio evidence  ←  GattServiceProvider advertisement
-connect/discover/subscribe                ↔  GattLocalCharacteristic WRITE | NOTIFY
-write frames                              →  ordered WriteRequested worker / bounded rx
-receive notifications                     ←  NotifyValueForSubscribedClientAsync
-                    shared packet validator + Receiver + terminal chat
+windows pc --host (WinRT GattServiceProvider advertisement + GATT server)
+  ↑ central writes / ↓ characteristic notifications
+linux laptop (btleplug fresh scan + connect + subscribe)
+  ↔ shared BitChat-compatible signed packets, Receiver, terminal chat
 ```
 
-- `desktop/bitchat-terminal/src/bin/chatt3r.rs`: `options`, `discover`,
-  `prepare_link`/`connect_with_retry`, `LinkWriter`, `send`, `Receiver::receive`,
-  `chat`, and the `--host` entry point. same signed packet and UI path for both
-  transports; no automatic replay of user messages after chat starts.
-- `desktop/bitchat-terminal/src/baseline/windows_gatt.rs`: Windows-only
-  `GattHost::start`, `wait_for_client`, `connected`, `write`, `process_write`,
-  session ATT MTU cap, advertisement event/status diagnostics and cleanup. it serves **one**
-  subscribed central, not an authenticated named Linux identity. the previous
-  subscription handler permanently latched a transient empty snapshot;
-  [host_policy.rs](../desktop/bitchat-terminal/src/baseline/host_policy.rs)
-  now treats zero as temporary, checks for a sustained two-second absence,
-  and still rejects another or multiple centrals. current
-  diagnostic replies: `0x03` disallowed writer/subscription change, `0x07`
-  nonzero offset, `0x0d` bad value length, `0x11` inbound queue full/closed.
-  the **earlier** Windows version returned `0x11` for several unrelated
-  rejection causes; do not infer MTU or queue saturation from the old trace.
-- `desktop/bitchat-terminal/src/baseline/linux_att.rs`: separate Linux-only
-  raw LE ATT workaround for the *known phone* when BlueZ picks classic/audio.
-  don't rewrite this path to fix Windows and don't disclose the phone address.
-- `desktop/bitchat-terminal/src/baseline/protocol.rs`: packet framing,
-  fragment/reassembly, signature validation and fixtures.
-- `desktop/bitchat-terminal/src/baseline/discovery.rs`: reject cached BlueZ
-  profiles until a fresh discovery/radio update; two unnamed candidates are
-  **ambiguous**. `scripts/chatt3r` defaults to a locally configured known
-  phone unless `CHATT3R_LE_PEER` is explicitly empty for the PC test.
-- [windows.md](windows.md): native PowerShell build/run and full two-machine
-  procedure. [laptop-to-laptop.md](laptop-to-laptop.md): observed adapter
-  blocker and role policy design (tie-break is **not shipped**).
-  [direct-le.md](direct-le.md): proven Linux phone workaround.
-  [upstream-analysis.md](upstream-analysis.md): source attribution and
-  compatibility findings. build **`--bin chatt3r`**, not the legacy binary.
+- `desktop/bitchat-terminal/src/bin/chatt3r.rs`: `discover`, `LinkWriter`,
+  `send`, `Receiver::receive`, `chat`, and Windows `--host` entry point. same
+  packet validation and UI are used for the client and host transports.
+- `desktop/bitchat-terminal/src/baseline/windows_gatt.rs`: native Windows
+  GATT service, single ordered inbound write worker, subscribed-client checks,
+  targeted notifications, reported ATT MTU cap, explicit cleanup. the host
+  waits for a valid signed incoming announcement before notifying.
+- `desktop/bitchat-terminal/src/baseline/host_policy.rs`: pure single-central
+  subscription rules tested without Windows hardware. a briefly empty
+  subscriber list gets a grace period; a different or additional subscriber
+  causes the current host to fail closed.
+- `desktop/bitchat-terminal/src/baseline/protocol.rs`: upstream-compatible
+  wire format, signing and fragmentation. `baseline/linux_att.rs`: working
+  separate Linux-only raw-ATT workaround for the known iphone; **don't
+  regress** it to change the Windows host. `baseline/discovery.rs` rejects
+  BlueZ cached UUIDs until there is fresh scan evidence.
+- [upstream-analysis.md](upstream-analysis.md) records source attribution;
+  [direct-le.md](direct-le.md) records phone-path design/evidence;
+  [windows.md](windows.md) has native PowerShell run commands;
+  [laptop-to-laptop.md](laptop-to-laptop.md) records the hardware milestone
+  and duplicate-link **design, not shipped**. build `--bin chatt3r`, not the
+  preserved legacy `bitchat` binary.
 
-## the live blocker: first linux → candidate write
+## hardware sequence and current blockers
 
-the user reported this Linux trace (identifiers omitted here):
+prior Windows runs showed peripheral support `true`, advertising `started`
+(initial `aborted/success` could precede `started/success`), subscription,
+then rejected writes with ATT `0x03`. the Windows GATT host reported a
+**subscriber conflict with `count=2`**; the inbound writer was not its
+initially selected central. turning iphone Bluetooth off allowed the later
+signed two-way text session. that does **not prove** the iphone was the
+second subscriber; closing its app alone had not prevented the conflict.
+`count=2` means two WinRT subscribed sessions, not necessarily two physical
+devices. don't unpair/reset devices to hide this issue.
 
-```text
-[scan] live BitChat candidate; name=(unnamed)     # printed twice
-[ble] connection established; discovering GATT services
-[ble] GATT discovery complete; 30 characteristics
-[ble] subscribing ... properties=CharPropFlags(WRITE | NOTIFY)
-[ble] connected and subscribed
-[tx] type=0x01 payload_bytes=76 frames=2 configured_limit=128
-Error: "BLE write failed: Operation failed with ATT error: 0x11"
-```
+in the successful run Linux logged two announcement fragments from
+`windows-pc`, `[windows-pc] yo`, `[windows-pc] ok got it`, and outbound
+`hi` / `yoooooooo`; the user confirmed the exchange worked. after a signed
+`windows-pc left`, Linux's later periodic announcement failed because BlueZ's
+`WriteValue` GATT D-Bus object disappeared. the user thinks they pressed
+Ctrl-C on the Windows host. this is **consistent with peer shutdown**, not
+a bad 128-byte limit. `chatt3r.rs` now labels that error as a disappeared
+characteristic rather than suggesting MTU. do not auto-replay messages.
 
-a *later run on another Windows PC* did supply a host trace (identifiers
-omitted here):
+### next work, in order
 
-```text
-[host] default Windows adapter peripheral role supported: true
-[host] advertisement: aborted (3), bluetooth: success (0)
-[host] advertisement: started (2), bluetooth: success (0)
-[host] one central subscribed
-[host] waiting for a signed peer announcement before notifying
-[host] subscription changed; refusing to switch central peers
-[host] inbound write rejected: subscription changed; rerun the host (ATT 0x03)
-Error: "BLE disconnected; rerun to reconnect"
-```
+1. keep the one-subscriber, phone-off flow as a known physical regression
+   test. repeat with simultaneous Windows and Linux logs. if measuring a
+   fully offline run, record Wi-Fi/cellular switch states too. on Linux,
+   override its local known-iphone shortcut **for that invocation** with
+   `CHATT3R_LE_PEER= ./scripts/chatt3r --debug --scan-seconds 90 --name laptop`.
+2. design competing-subscriber handling before claiming the phone can remain
+   on. safely bind incoming fragments and notifications to one selected GATT
+   session **after validation**, reject/ignore other sessions without
+   blacklisting the chosen one, and don't silently switch peers or replay
+   ambiguous writes. the existing single-peer policy fails closed; it is
+   not general laptop-to-laptop role negotiation.
+3. test Windows `/quit`/Ctrl-C and Linux teardown, out-of-range behavior and
+   restart explicitly. the client does not reconnect an established session
+   or provide application delivery ACKs.
+4. Linux ↔ Linux still needs a capable advertising adapter and a Linux GATT
+   server. generic file receiving/sending comes after a stable phone-free
+   transport. do not claim files are usable just because upstream wire
+   formats can represent binary data.
 
-**root cause for the first Windows-side rejection:** the handler treated an
-empty *instantaneous* subscriber list as permanent loss. the new policy
-treats zero as transient; the link check ends chat after sustained absence.
-**a later hardware run still rejected an inbound write** after
-`different or multiple subscribed centrals` (ATT `0x03`). that message is
-ambiguous: one changed Windows session ID and two or more subscribed devices
-need different fixes. the next diagnostic build prints the subscriber **count
-and match flags only**. do not weaken one-peer selection until the count and
-simultaneous Linux log are known. an `aborted/success` event preceded
-`started/success`, so the Windows PC *did* start advertising; don't call its
-radio incapable. prior Linux/Windows logs may be different runs or PCs.
-
-also, the host now waits for a validated inbound announcement before its
-first notification and caps host output to `GattSession.MaxPduSize - 3`; that
-was an earlier race hypothesis, not the demonstrated subscription-policy bug.
-
-### next decisive test, in order
-
-1. use the **same Windows PC** that proved advertising and the updated
-   diagnostic build. collect `subscriber conflict: count=...` and
-   `rejected write state` match booleans, if printed. `count=1` with a changed
-   ID is a Windows session-identity issue; `count>1` suggests another
-   subscriber. do not switch peers automatically. record whether the iphone
-   app was open/nearby. don't publish addresses or raw private logs.
-   `one central subscribed` still does not authenticate the device as Linux.
-2. close the iphone **app** for a clean one-host test (leave bonds/settings
-   intact). on Windows, update the checkout (if no conflicting local edits),
-   build and run as a normal user in PowerShell:
-
-   ```powershell
-   git pull --ff-only
-   cargo build --locked --manifest-path .\desktop\bitchat-terminal\Cargo.toml --bin chatt3r
-   & .\desktop\bitchat-terminal\target\debug\chatt3r.exe --host --write-limit 128 --name windows-pc --debug
-   ```
-
-   wait for `started`, or treat `started_without_all_advertisement_data` as
-   **partial**; `aborted`/timeout needs its BluetoothError, not an adapter
-   reset. the PC's new code should print queued/rejected inbound writes
-   without logging contents or addresses.
-3. on the Linux laptop from its checkout, **disable its local phone shortcut
-   for each command** (not the saved phone setting or its bond):
-
-   ```bash
-   CHATT3R_LE_PEER= ./scripts/chatt3r --scan-only --scan-seconds 30
-   CHATT3R_LE_PEER= ./scripts/chatt3r --debug --scan-seconds 90 --name laptop
-   ```
-
-   correlate Windows subscription/write lines with the Linux timestamp. if
-   Windows logs no subscriber, Linux may have selected another candidate. if
-   Windows logs a rejection, use the **category** rather than guessing MTU;
-   if it queues frames, trace ACKs and announcement/notification handling.
-4. only after signed announcements and short `hi` appear **both ways** on both
-   PCs without the phone may the matrix say laptop ↔ PC text works. test
-   disconnect behavior and ambiguous writes separately; never replay a text
-   the peer may already have received. don't promise files or delivery ACKs.
-
-## local checks and guardrails
+## local checks and safety
 
 ```bash
 cargo test --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml
@@ -168,16 +112,10 @@ cargo check --offline --locked --target x86_64-pc-windows-gnu --manifest-path de
 cargo clippy --offline --locked --target x86_64-pc-windows-gnu --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r -- -D warnings
 ```
 
-`rustup target add x86_64-pc-windows-gnu` may be required for cross-check;
-Cargo may need a one-time online fetch. those checks **do not exercise Windows
-Bluetooth**. the latest local run passed 4 legacy unit tests, 32 `chatt3r`
-unit tests (2 interactive cases intentionally ignored), launcher smoke and
-4 Linux terminal PTY cases; Windows-target check/Clippy passed. new code must
-be tested again. do not run WinRT host code on Linux or recommend WSL as a
-substitute for native Windows BLE.
-
-only the user's `codexguide.md` is currently untracked. don't stage/edit it,
-read local `~/.zshrc` into a committed file, include real peer addresses, or
-commit exported conversations. preserve Bluetooth pairings and existing
-Linux ↔ iphone behavior. use lowercase, readable architectural checkpoints;
-push **tested** changes with evidence labeled honestly. see [AGENTS.md](../AGENTS.md).
+Windows-target checks **do not test the PC radio**. the Windows PC must
+build/run the host natively. don't recommend WSL as a substitute for its
+Bluetooth adapter. use lowercase architectural checkpoints with code paths,
+data flow and evidence. don't edit/stage/commit the user's untracked
+`codexguide.md`, real phone address, `~/.zshrc`, raw sensitive logs or Pi
+session export. avoid bond deletion or adapter resets as routine fixes;
+review staged changes and push tested, honestly labeled updates.

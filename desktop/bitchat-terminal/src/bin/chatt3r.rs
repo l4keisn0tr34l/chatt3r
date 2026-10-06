@@ -257,6 +257,16 @@ impl LinkWriter<'_> {
     }
 }
 
+fn write_error_message(details: &str) -> String {
+    if details.contains("WriteValue")
+        && (details.contains("doesn't exist") || details.contains("UnknownObject"))
+    {
+        format!("BLE GATT characteristic disappeared; the peer may have exited. restart to reconnect; no message was replayed. original error: {details}")
+    } else {
+        format!("BLE write failed: {details}; check link and --write-limit (not measured MTU)")
+    }
+}
+
 async fn send(
     writer: &LinkWriter<'_>,
     packet: &Packet,
@@ -273,9 +283,7 @@ async fn send(
     for frame in frames {
         timeout(Duration::from_secs(10), writer.write(&frame))
             .await?
-            .map_err(|e| {
-                format!("BLE write failed: {e}; check link and --write-limit (not measured MTU)")
-            })?;
+            .map_err(|e| write_error_message(&e.to_string()))?;
         sleep(Duration::from_millis(20)).await;
     }
     Ok(()) // GATT success is not a remote message delivery acknowledgement.
@@ -909,6 +917,16 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disappeared_gatt_object_is_not_misdiagnosed_as_frame_size() {
+        let error = write_error_message("Method \"WriteValue\" with signature \"aya{sv}\" on interface \"org.bluez.GattCharacteristic1\" doesn't exist");
+        assert!(error.contains("characteristic disappeared"));
+        assert!(!error.contains("--write-limit"));
+        assert!(
+            write_error_message("Operation failed with ATT error: 0x0d").contains("--write-limit")
+        );
+    }
 
     #[test]
     fn host_waits_for_a_validated_peer_before_initial_notification() {

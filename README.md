@@ -21,7 +21,7 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | photos, voice notes, arbitrary files | not supported by chatt3r yet |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
-| linux ↔ windows pc text | windows host physically advertised and got a subscriber/write, but a later run still rejected the write after a subscriber conflict (`ATT 0x03`). **no confirmed signed text** |
+| linux ↔ windows pc text | **user-confirmed two-way signed public text over BLE without the iphone**; only worked with the phone's Bluetooth off to avoid a second subscriber |
 
 the user confirmed an iphone ↔ linux text exchange on the direct le path with
 the iphone offline. exact wifi/cellular switch states, multiple repetitions,
@@ -33,8 +33,8 @@ bluez path is not yet physically validated. this isn't a finished, guaranteed-re
 
 these steps are for ubuntu. **windows:** see the experimental
 [windows setup and run guide](docs/windows.md); the windows gatt **host**
-is experimental, and a pc ↔ linux signed text exchange is not yet confirmed.
-windows → iphone text is user-confirmed. for a coding-agent handoff, start at
+exchanged two-way public text with linux in a one-subscriber hardware test.
+windows → iphone text is separately user-confirmed. for a coding-agent handoff, start at
 [AGENTS.md](AGENTS.md) and [docs/codex-handoff.md](docs/codex-handoff.md).
 
 ### 1. set up the laptop
@@ -246,16 +246,13 @@ procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
 
 1. **harden text:** repeated offline tests, saved preferences, reliable reconnects,
    larger-message support, and a cleaner desktop core.
-2. **remove the phone dependency:** a different windows pc actually
-   advertised, subscribed a central and received a write. our handler
-   mistook a momentary empty subscription snapshot for permanent disconnect
-   and rejected that write. after that fix, another run reported a **different
-   or multiple subscriber** conflict. identify the subscriber count and
-   compare both terminals in one simultaneous test before changing peer
-   selection. verify signed text in both directions before calling it done.
-   linux ↔ linux still needs a working advertising adapter and a linux gatt
-   server; local bluez registration fails on this controller. see
-   [docs/laptop-to-laptop.md](docs/laptop-to-laptop.md).
+2. **harden phone-free desktop text:** linux ↔ windows now exchanges signed
+   text when the iphone's Bluetooth is off. the Windows host still rejects
+   extra subscribers; don't require the phone to stay off forever. select
+   a link deliberately, test out-of-range/reconnect and never replay an
+   ambiguous message. linux ↔ linux still needs a working advertising adapter
+   and a linux gatt server; local bluez registration fails on this controller.
+   see [docs/laptop-to-laptop.md](docs/laptop-to-laptop.md).
 3. **add files:** receive a small phone attachment, then verified arbitrary files.
    an iphone fork may need macos/xcode if stock ui can't expose the needed flow.
 

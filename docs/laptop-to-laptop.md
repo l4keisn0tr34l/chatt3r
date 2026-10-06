@@ -1,27 +1,22 @@
 # laptop ↔ laptop: remove the phone dependency
 
-status: **windows GATT server physically started; signed two-desktop text
-unproven.** on a different Windows PC, the host reported BLE peripheral
-support, advertisement `started`, a subscribed central and an inbound write.
-the first host run **latched a transient empty subscriber snapshot**,
-rejected the write with ATT `0x03` and shut down. after a fix that tolerates
-brief empty snapshots, a **second hardware run still rejected a write** with
-`0x03`, now reporting `different or multiple subscribed centrals`. the
-existing log doesn't distinguish one changed Windows session ID from two or
-more subscribing devices. the host now logs **only the count and match
-booleans** (no address or text) to distinguish those cases on the next run.
-no link-switching behavior is changed until the actual conflict is known.
+status: **linux ↔ windows pc public text user-confirmed over BLE with phone
+Bluetooth off.** Linux received a signed `windows-pc` announcement (two
+fragments) and the Windows replies `yo` and `ok got it`; Linux sent `hi` and
+`yoooooooo`, and the user confirmed the exchange. there was **no iphone
+radio link** in this run. Wi-Fi/cellular switch states were not recorded;
+the client used BLE GATT, not an Internet service. this is one physical
+one-subscriber session, not proof of robust multi-peer selection or reconnect.
 
-an earlier Linux run saw two unnamed live BitChat candidates, connected to
-one, found notify/write and subscribed; its first signed announcement write
-failed with ATT `0x11`. this was not necessarily the same Windows machine or
-run, so do not combine those logs into a proven Linux ↔ PC exchange. no
-signed two-desktop packet has been observed on both terminals. windows →
-stock iphone text is user-confirmed on a Windows central client; iphone →
-windows is not separately confirmed. linux ↔ iphone is user-confirmed bidirectional and offline. a
-software-only test covers signed two-peer text, fragmentation, rejection and
-deduplication, but it does not use BLE. bluetooth does **not** require an iphone
-or manual settings pairing.
+prior Windows runs with phone Bluetooth on rejected inbound writes when the
+host saw a transient empty subscriber list and later **count=2** subscribers.
+turning off phone Bluetooth allowed this later text exchange; this does not
+prove the phone was the second subscriber, only that it changed the test
+environment. phone-off is a **temporary isolation workaround**, not the
+intended product design. windows → stock iphone text is also user-confirmed
+on a Windows central client; iphone → windows is not separately confirmed.
+linux ↔ iphone text is user-confirmed bidirectional and offline. no files,
+private chat, relaying or application delivery receipts are shipped.
 
 ## hardware and library check on this linux laptop
 
@@ -47,14 +42,14 @@ or manual settings pairing.
   working LE advertising. try a separately tested adapter or a minimal BlueZ
   D-Bus registration on this one before building the full server. do not
   restart bluetooth or delete bonds just to mask this error.
-- **observed on the other Windows PC:** peripheral-role report `true`,
-  advertisement `started`, one central subscription and an inbound ATT write
-  rejected by our host. **not yet observed:** a signed announcement arriving
-  in the Windows chat, a Windows notification received by Linux, or text on
-  both terminals without the phone. separate the earlier Linux and later
-  Windows logs by run/device until a simultaneous test confirms identity.
+- **observed:** another Windows PC reports peripheral-role support and
+  advertisement `started`, and Linux received its signed announcement and
+  Windows public text in the phone-off run. the user confirmed two-way text.
+  **still missing:** Windows-side transcript for the successful run, a
+  repeatable simultaneous test with phone Bluetooth on, a verified
+  disconnect/reconnect sequence, and Linux ↔ Linux hosting.
 
-## planned data flow
+## architecture checkpoint — first phone-free signed text
 
 ```text
 windows pc advertises bitchat service, hosts notify/write GATT characteristic
@@ -64,19 +59,25 @@ linux laptop scans and connects as central
 existing bitchat packet validation + peer state + terminal UI on both sides
 ```
 
-the new windows `--host` path uses `GattServiceProvider` to advertise the
-service, owns a notify/write `GattLocalCharacteristic`, and uses a single
-ordered worker for incoming writes. it restricts the session to one subscribed
-central and uses the existing signed packet/chat validation for text. the
-host now **waits for an inbound signed announcement before its first notify**
-rather than sending immediately on subscription; outgoing frames are capped
-to its session's reported ATT MTU minus three bytes. that earlier race fix
-was not yet isolated by hardware. the later observed bug was the too-strict
-subscriber-change handler; an empty snapshot now gets a short grace period,
-while an actual conflicting central fails closed. no automatic replay after
-disconnection; provider and event handler are cleaned
-up when the host exits. bluetooth device pairing is **not** an app-layer trust
-mechanism, and signed packets are not encrypted.
+`desktop/bitchat-terminal/src/baseline/windows_gatt.rs` uses native Windows
+`GattServiceProvider` to advertise, a `GattLocalCharacteristic` for central
+writes and notifications, and an ordered worker to feed the shared receiver.
+`desktop/bitchat-terminal/src/bin/chatt3r.rs` routes both the btleplug/Linux
+central and Windows-host frames through `LinkWriter`, `send`, `Receiver::receive`
+and `chat`. `desktop/bitchat-terminal/src/baseline/protocol.rs` implements the
+BitChat-compatible signed packets and fragmentation; the Windows host is new
+chatt3r transport code, not an upstream iPhone feature. Linux's working phone
+`linux_att.rs` direct-LE backend is unchanged.
+
+**important limitation:** host subscription selection is currently a
+one-central policy. a brief empty subscription snapshot gets a short grace
+period; a different or additional subscriber triggers a fail-closed exit.
+we have **not** authenticated a durable device identity for multi-peer
+selection. the current signing identity is ephemeral and does not provide
+private/encrypted chat. no possibly delivered user message is automatically
+replayed on disconnect. Windows caps notifications at its reported session
+ATT MTU minus three bytes; the operator's 128-byte limit is not a measured
+Linux MTU. Bluetooth pairings were not reset for these tests.
 
 if Windows advertising cannot run on this PC, a linux host would require a
 BlueZ D-Bus `LEAdvertisement1` and a `GattService1`/`GattCharacteristic1`
@@ -104,33 +105,24 @@ before promising resumed chat or files.
 
 ## next proof, in order
 
-1. on the **same Windows PC** that showed `started` and received a write,
-   rebuild the updated `chatt3r.exe --host --write-limit 128 --debug`. log
-   advertising and whether `subscriber snapshot empty` is followed by a
-   recovered client, an accepted inbound frame, or a sustained disconnect.
-   an initial `aborted/success` followed by `started/success` was observed;
-   don't treat that transient event alone as a failed radio. no pairing changes.
-2. on linux, disable its local known-iphone shortcut for this command with
-   `CHATT3R_LE_PEER= ./scripts/chatt3r --scan-only --scan-seconds 30`. confirm
-   an actual BitChat service radio update from the Windows PC. see
-   [windows.md](windows.md) for the complete two-machine run.
-3. connect Linux as central with the phone app closed; collect **simultaneous**
-   debug logs on this PC and laptop. an earlier Linux run failed with ATT
-   `0x11`; two later Windows runs rejected writes with `0x03`. the current
-   blocker is a Windows subscriber conflict: `count=1` with a different
-   session ID needs different analysis from `count>1` (another subscribed
-   device). the new host prints count and identity *match flags* only.
-   do not assume these were the same device or run. then confirm queued
-   frames, signed announcements, a Windows notification received on Linux
-   and signed `hi` text on both terminals.
-4. test disconnect behavior, more than one central, malformed frames and
-   message size limits. the startup retry code must never resend an ambiguous
-   message. Windows host should fail closed instead of switching central peers.
-5. later: test dual-role adapters/two simultaneous links and implement the
-   authenticated stable-identity tie-break above. if Windows cannot advertise,
-   investigate an alternate BLE adapter or a Linux BlueZ server with a verified
-   advertising controller.
+1. repeat the two-way short-text test on the same Linux/Windows pair, phone
+   Bluetooth off, with simultaneous Windows and Linux logs. separately test
+   Wi-Fi off if a reproducible fully offline switch-state claim is desired.
+2. test with phone Bluetooth on. count/identify competing WinRT subscribed
+   sessions **without committing device addresses**. deliberately select the
+   validated session and route its fragments/notifications to it; reject
+   other clients without tearing down the chosen link. do not automatically
+   switch links or replay a user message. `count=2` does **not** prove the
+   iphone was the other client.
+3. test Windows `/quit`/Ctrl-C: Linux saw signed `LEAVE`, then a later periodic
+   announce hit a BlueZ `WriteValue` method missing after the Windows GATT
+   object was removed. likely normal peer shutdown, not an MTU failure; the
+   client now reports the disappeared characteristic clearly. live-session
+   reconnect and delivery receipts still need a design.
+4. Linux ↔ Linux still requires a working advertising controller and a Linux
+   GATT server. dual-role symmetric links and identity tie-break above remain
+   **planned**, not part of the proven Windows-host/Linux-central pairing.
 
-neither the iphone success nor Windows-target compilation proves step 2/3.
-do not describe laptop ↔ laptop as working until both machines confirm real
-packets without a phone.
+this milestone is a real phone-free **Linux ↔ Windows** text link. it is not
+yet a general multi-device peer network, a file-transfer tool, or a tested
+Linux ↔ Linux link.
