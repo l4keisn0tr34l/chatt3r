@@ -47,6 +47,22 @@ fn bluetooth_error(error: BluetoothError) -> &'static str {
     }
 }
 
+fn bluetooth_hint(error: BluetoothError) -> &'static str {
+    match error {
+        BluetoothError::RadioNotAvailable | BluetoothError::DisabledByUser =>
+            "check Windows Bluetooth is enabled and the adapter is available; do not unpair devices",
+        BluetoothError::ResourceInUse =>
+            "close any previous chatt3r --host window and retry once; do not reset the adapter",
+        BluetoothError::DisabledByPolicy =>
+            "Windows policy is blocking BLE hosting; check with the machine administrator",
+        BluetoothError::ConsentRequired =>
+            "Windows requires app permission/consent; record the Windows version and Bluetooth permissions",
+        BluetoothError::NotSupported | BluetoothError::TransportNotSupported =>
+            "Windows rejected GATT hosting for this adapter/app; central client success does not prove peripheral support",
+        _ => "record the Windows version and Bluetooth adapter model; no pairing changes",
+    }
+}
+
 fn event_detail(event: &Mutex<Option<(AdStatus, BluetoothError)>>) -> String {
     match *event.lock().unwrap() {
         Some((status, error)) => format!(
@@ -158,17 +174,24 @@ pub struct GattHost {
 impl GattHost {
     pub async fn start() -> Result<(Arc<Self>, mpsc::Receiver<Vec<u8>>)> {
         let adapter = BluetoothAdapter::GetDefaultAsync()?.await?;
-        if !adapter.IsPeripheralRoleSupported()? {
+        let peripheral_supported = adapter.IsPeripheralRoleSupported()?;
+        eprintln!(
+            "[host] default Windows adapter peripheral role supported: {peripheral_supported}"
+        );
+        if !peripheral_supported {
             return Err(
                 "windows adapter reports no BLE peripheral role; try a supported USB adapter"
                     .into(),
             );
         }
         let result = GattServiceProvider::CreateAsync(GUID::from_u128(SERVICE.as_u128()))?.await?;
-        if result.Error()? != BluetoothError::Success {
+        let creation_error = result.Error()?;
+        if creation_error != BluetoothError::Success {
             return Err(format!(
-                "windows GATT service creation failed: {:?}",
-                result.Error()?
+                "windows GATT service creation failed: {} ({}); {}",
+                bluetooth_error(creation_error),
+                creation_error.0,
+                bluetooth_hint(creation_error)
             )
             .into());
         }
@@ -179,10 +202,13 @@ impl GattHost {
             .Service()?
             .CreateCharacteristicAsync(GUID::from_u128(CHARACTERISTIC.as_u128()), &params)?
             .await?;
-        if char_result.Error()? != BluetoothError::Success {
+        let characteristic_error = char_result.Error()?;
+        if characteristic_error != BluetoothError::Success {
             return Err(format!(
-                "windows GATT characteristic creation failed: {:?}",
-                char_result.Error()?
+                "windows GATT characteristic creation failed: {} ({}); {}",
+                bluetooth_error(characteristic_error),
+                characteristic_error.0,
+                bluetooth_hint(characteristic_error)
             )
             .into());
         }

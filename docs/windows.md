@@ -81,8 +81,18 @@ $client = '.\desktop\bitchat-terminal\target\debug\chatt3r.exe'
 ```
 
 look for `[host] windows gatt host started ... waiting for one subscriber`.
-status lines now show `advertisement: started` or a detailed Windows Bluetooth
-error. an initial `stopped` is allowed up to 10 seconds while Windows starts
+if `GATT service creation failed`, the PC has **not started advertising**:
+stop the Linux test. the new host build prints peripheral-role support, the
+named Windows `BluetoothError` **and its numeric value**. if it reports
+`resource_in_use`, close any previous `chatt3r.exe --host` window and retry
+once; don't reset Bluetooth or unpair anything. for `not_supported` or another
+error, share the full line, Windows version and adapter model before changing
+the implementation. a working central client does not establish GATT-server
+support.
+
+once creation succeeds, status lines show `advertisement: started` or a
+detailed Windows Bluetooth error. an initial `stopped` is allowed up to 10
+seconds while Windows starts
 the radio. if you see `started_without_all_advertisement_data`, continue with
 the Linux **scan-only** check: it may lack the service UUID and is *not* proof
 of discovery. if it aborts or times out, save the **complete** `advertisement`

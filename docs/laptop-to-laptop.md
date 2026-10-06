@@ -7,6 +7,10 @@ Linux can scan/connect as a central. **next hardware checkpoint:** the laptop
 saw two unnamed live BitChat candidates, connected to one, discovered the
 notify/write characteristic and subscribed. its **first signed announcement
 write failed with ATT `0x11`**; no two-desktop packet exchange is confirmed.
+on a later Windows run, the user reported `GATT service creation failed:
+BluetoothError` without the numeric code. that error is **before** advertising;
+the PC's complete named/numeric error is required before deciding whether
+this is unsupported hosting, an occupied resource, or something else.
 the Windows host console output is still needed to establish whether this
 candidate was the PC rather than the other advertising device. even a Windows
 subscription line indicates *a* central, not its authenticated identity. windows →

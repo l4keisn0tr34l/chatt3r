@@ -1,7 +1,7 @@
 # codex handoff: chatt3r
 
-last reviewed while preparing a Windows-host startup fix after `3d6e097`.
-this is a **snapshot**, not evidence of a subsequent hardware run. check `git status`, `git log -5 --oneline`, the current
+last reviewed after `48c32d8` and a user report of Windows GATT service
+creation failure. this is a **snapshot**, not proof of a two-PC radio link. check `git status`, `git log -5 --oneline`, the current
 code, and [laptop-to-laptop.md](laptop-to-laptop.md) before updating a claim.
 
 ## purpose and evidence
@@ -87,8 +87,10 @@ that the iphone app was closed. the Windows host originally reported
 "advertisement not usable"; a later fix waits through transient `Stopped`,
 logs the Windows BluetoothError, and accepts a **partial** advertisement only
 as a reason to try a Linux scan, not proof the service UUID was on air. there
-has been no confirmed retest of the latest Windows diagnostic build. the host
-previously sent its first notification **immediately** after subscription;
+a later attempt reported `GATT service creation failed: BluetoothError`
+without the Windows enum number. that attempt failed **before advertising**;
+ask for the complete error and whether another host process was still open.
+the host previously sent its first notification **immediately** after subscription;
 if that notify failed, it would exit and drop the GATT service before Linux
 could write. the new code waits for a validated inbound announcement and
 limits host notifications to `GattSession.MaxPduSize - 3`. this is a plausible
@@ -96,9 +98,14 @@ race/MTU fix, **not** a proven root cause; obtain the PC console output.
 
 ### next decisive test, in order
 
-1. ask for the existing Windows terminal output around that Linux run: ad
-   status/error, whether it printed a subscription line, whether it stayed
-   running, and whether stock BitChat was open on the iphone. don't share
+1. first resolve the latest **pre-advertisement service creation error**:
+   after pulling the updated diagnostic build, record its named/numeric
+   BluetoothError and the adapter's peripheral-role result. if it says
+   `resource_in_use`, close any prior `chatt3r.exe --host` process and retry
+   once; otherwise do not guess. when creation succeeds, ask for the existing
+   Windows terminal output around the Linux `0x11` run: ad status/error,
+   subscription line, whether it stayed running, and whether stock BitChat was
+   open on the iphone. don't share
    device addresses or private logs. an old `Linux subscribed` label was
    misleading; the updated text is `one central subscribed` because the host
    has not identified the central.
