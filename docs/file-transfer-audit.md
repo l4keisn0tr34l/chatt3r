@@ -1,6 +1,6 @@
 # file transfer audit — no new wire protocol yet
 
-source pins and legal restrictions: [upstream reuse audit](upstream-reuse-audit.md). the source analysis and software checkpoints below are followed by **one saved stock-iPhone JPEG on physical BLE**, verified locally by size/hash and full image decode; original-image comparison is unavailable. the original text-only `chatt3r.rs:Receiver::receive` ignored `0x22` and `baseline/protocol.rs:Reassembler::accept` rejects file fragments; naive file support was impossible. a later first implementation step added `baseline/file_packet.rs`, a **pure, bounded canonical-v2-layout TLV codec**, exposed from `src/lib.rs` and unit-tested with `test-vectors/file-payload-v2.json`. its reader deliberately rejects legacy lengths and multiple content TLVs that upstream can tolerate. it was **not wired into** `chatt3r` in that first checkpoint. the Python CLI is GPL-3.0 reference, not drop-in reusable code.
+source pins and legal restrictions: [upstream reuse audit](upstream-reuse-audit.md). the source analysis and software checkpoints below are followed by **one saved stock-iPhone JPEG on physical BLE**, verified locally by size/hash and full image decode and visually confirmed by the user as the image sent; original-byte/hash comparison is unavailable. the original text-only `chatt3r.rs:Receiver::receive` ignored `0x22` and `baseline/protocol.rs:Reassembler::accept` rejects file fragments; naive file support was impossible. a later first implementation step added `baseline/file_packet.rs`, a **pure, bounded canonical-v2-layout TLV codec**, exposed from `src/lib.rs` and unit-tested with `test-vectors/file-payload-v2.json`. its reader deliberately rejects legacy lengths and multiple content TLVs that upstream can tolerate. it was **not wired into** `chatt3r` in that first checkpoint. the Python CLI is GPL-3.0 reference, not drop-in reusable code.
 
 ## existing BitChat public file envelope
 
@@ -163,7 +163,8 @@ type-`0x20` notification values of 458/328/80/168/504/431 bytes, and one save
 of **3,485 bytes**. local read-only checks independently found a 3,485-byte
 file with mode **0600**, `image/jpeg`, and a SHA-256 matching the receiver's
 printed digest. Pillow verification and full decode passed: **JPEG, 252×448,
-RGB**. the user has no original image saved for comparison. no media, local
+RGB**. the user then visually confirmed the saved image matches the image
+sent. no original file is saved for byte/hash comparison. no media, local
 filename/path, peer ID or raw transcript is retained here.
 
 the exercised data flow is BLE notification →
@@ -177,7 +178,7 @@ after signature, metadata, size and MIME checks; it is stronger evidence than
 a subscription or successful transport write.
 
 this establishes **one small public JPEG received and stored**, without
-proving equality with the original photo, repeatability, file sending, private
+proving byte equality with the original photo, repeatability, file sending, private
 media, delivery receipts, Swift compression byte identity or general media
 compatibility. this run's supplied lines omit negotiated MTU, fragment
 flags/count and outer compression, so the earlier 46-part image and bounded

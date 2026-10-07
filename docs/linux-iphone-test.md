@@ -79,7 +79,8 @@ Messages are limited to **99 UTF-8 bytes**, not 99 characters. Public plaintext
 is signed but not confidential, not Noise-authenticated. Do not send secrets.
 The opt-in **small public file receiver** has now saved one 3,485-byte iPhone
 JPEG on radio, with local size/hash verification and full image decode.
-Original-image comparison is unavailable. Earlier type-`0x20` values were
+The user visually confirmed it matches the image sent; original-byte/hash
+comparison is unavailable. Earlier type-`0x20` values were
 rejected as truncated or unsupported, before file verification/saving. No file sending, private media,
 encryption sessions, auto-reconnection, delivery ACKs or gossip sync is implemented.
 
@@ -148,8 +149,9 @@ the user reported a signed iPhone announcement and type-`0x20` values of
 458/328/80/168/504/431 bytes followed by one saved `.bin`. read-only local
 verification confirmed **3,485 bytes**, **0600** permissions, `image/jpeg`,
 and a SHA-256 matching the receiver's output. Pillow verified and fully
-decoded the JPEG as **252×448 RGB**. the user has no original image saved,
-so there is no original-byte/hash comparison. no private media, peer ID,
+decoded the JPEG as **252×448 RGB**. the user then visually confirmed the
+saved image matches the image sent. no original file is saved, so there is
+no original-byte/hash comparison. no private media, peer ID,
 local file path or raw image is included in this evidence record.
 
 the excerpt does not include this run's negotiated MTU, fragment flags/count,

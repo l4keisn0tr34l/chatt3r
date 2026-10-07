@@ -31,7 +31,8 @@ iphone → windows is not separately confirmed.
 linux ↔ iphone text is user-confirmed bidirectional and offline. small
 public file **receive** is Linux phone-link opt-in; one **3,485-byte iPhone
 JPEG** was saved on radio, with local size/hash verification and full image
-decode. original-image comparison and repeatability remain unconfirmed.
+decode. the user visually confirmed it matches the image sent; original-byte
+comparison and repeatability remain unconfirmed.
 see [file-transfer-audit.md](file-transfer-audit.md). no file sending, private chat,
 relaying or application delivery receipts are shipped.
 

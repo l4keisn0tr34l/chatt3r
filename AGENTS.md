@@ -27,7 +27,8 @@ what has shipped. prefer observed results and current code over old roadmaps.
   raw-DEFLATE fragment frames before full outer-signature validation; this
   path then saved a **3,485-byte iPhone JPEG on radio**, verified locally by
   size, SHA-256 matching the receiver output, and full image decode (252×448).
-  no original image was available for comparison; this run did not record
+  the user visually confirmed the saved image matches the image sent. no
+  original file was available for byte/hash comparison; this run did not record
   fragment flags/count or its negotiated MTU. the earlier 46-part image and
   compressed-fragment behavior still need specific radio evidence. default text
   stays at 185. no file sending, private files,

@@ -20,7 +20,7 @@ iPhone JPEG has been saved over BLE and verified locally.
 | startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait (closed-app wait observed, reopen transition pending) |
 | known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
 | longer text / compression | not supported yet; max 99 utf-8 bytes |
-| public file receive | opt-in `--receive-files <existing-dir>` on Linux phone link; **one 3,485-byte iPhone JPEG saved on radio**, with size/hash verified locally and full image decode. original-image comparison unavailable. earlier MTU 517/value 514 and full 504-byte fragments were confirmed; the earlier 46-part image and compressed-fragment behavior still need specific radio evidence. no sending, private files, or general media guarantee |
+| public file receive | opt-in `--receive-files <existing-dir>` on Linux phone link; **one 3,485-byte iPhone JPEG saved on radio**, with size/hash verified locally and full image decode. user visually confirmed it matches the image sent; original-byte/hash comparison unavailable. earlier MTU 517/value 514 and full 504-byte fragments were confirmed; the earlier 46-part image and compressed-fragment behavior still need specific radio evidence. no sending, private files, or general media guarantee |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
 | linux ↔ windows pc text | **user-confirmed two-way signed public text over BLE** on the stock service with phone Bluetooth off **and** desktop-only service with phone Bluetooth on throughout; a simultaneous phone-on console transcript was not retained |
@@ -270,7 +270,8 @@ procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
    verifies signed public `0x22` packets, caps expansion and stores selected
    MIME as randomly named `.bin` files. one **3,485-byte stock-iPhone JPEG**
    was saved on radio; its size/hash matched the receiver report and it fully
-   decoded at 252×448. no original image was available for byte comparison.
+   decoded at 252×448. the user visually confirmed it matches the image sent;
+   no original file was available for byte comparison.
    earlier file mode negotiated **ATT MTU 517/value 514**, but a 46-part image
    hit the old 16 KiB collector cap. the larger bounded collector and compressed
    fragments pass software tests; the small saved image does not establish
