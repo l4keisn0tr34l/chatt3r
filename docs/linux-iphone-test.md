@@ -77,8 +77,9 @@ to load a newly built binary. Ignored/malformed frame diagnostics require `--deb
 
 Messages are limited to **99 UTF-8 bytes**, not 99 characters. Public plaintext
 is signed but not confidential, not Noise-authenticated. Do not send secrets.
-The opt-in **small public file receiver** described below is software-tested
-but not yet tested against the iPhone. No file sending, private media,
+The opt-in **small public file receiver** is software-tested; the first real
+iPhone image log **shows no saved file**. repeated type-`0x20` values were
+rejected as truncated or unsupported, before file verification/saving. No file sending, private media,
 encryption sessions, auto-reconnection, delivery ACKs or gossip sync is implemented.
 
 `[drop]` errors are intentional diagnostics, not panics. A compressed/routed
@@ -87,7 +88,7 @@ isolated two-device test may avoid compressed announcements; this is a temporary
 baseline limitation, not a protocol rule. If a signed public message arrives
 before a valid announcement, wait for the next announce and resend the message.
 
-## pending first iPhone → Linux small-image check (opt-in)
+## optional diagnostic repeat after the failed image attempt (opt-in)
 
 keep your working phone link and bond unchanged. the stock iPhone UI in the
 inspected source can **send a public image/voice note**, not necessarily an
@@ -114,10 +115,17 @@ record whether it arrived once. this saves **generic `.bin` without using the
 untrusted filename or auto-opening media**. only jpeg/png/gif/webp with
 matching magic bytes and `application/octet-stream` are allowed for the first
 test. the 128-byte write limit is not a measured MTU or a phone file size
-promise. `[drop]` diagnostics may mean an untested compression variant,
-fragment count/16 KiB cap, unrecognized MIME, missing announce or truncated
-transfer: record only sanitized error text, not raw media or peer IDs in git.
-no radio file result exists yet.
+promise. in the first run, the phone sent many 182-byte type-`0x20` values
+that chatt3r rejected as truncated or unsupported, and no saved image was reported.
+this is **not** a successful file test. a newer build samples the first six
+and every 50th fragment and adds `[rx-shape]`: version, flags, declared and
+actual packet size, and fragment index/count/original type if present.
+for a repeat, report just a few sanitized `[rx-shape]` / `[drop]` lines and
+negotiated ATT MTU; no file bytes, device address or raw packet dump. if the
+frame claims more bytes than arrived, changing `--write-limit` won't restore
+missing incoming bytes (that flag controls outbound writes). don't reset
+Bluetooth or remove bonds. other possible drops remain MIME, signature,
+fragment count/16 KiB cap or unsupported packet type.
 
 ## Record evidence
 

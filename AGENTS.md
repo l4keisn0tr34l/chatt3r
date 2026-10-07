@@ -13,9 +13,12 @@ what has shipped. prefer observed results and current code over old roadmaps.
   over the desktop-only service with iphone Bluetooth on throughout. no
   simultaneous phone-on console transcript was retained. Windows
   `--host --stock-host` preserves the proven phone-off service path.
-- opt-in `--receive-files <existing-dir>` on a Linux phone link now has a
-  **software-tested, not yet iphone-radio-tested** small public file receiver;
-  no file sending, private files, general media compatibility, or receipts.
+- opt-in `--receive-files <existing-dir>` on a Linux phone link has a
+  **software-tested small public file receiver**. the first iphone image
+  radio attempt has **no saved file reported**: 182-byte type-`0x20`
+  notifications were rejected as truncated or unsupported. original type/declared length were
+  not logged. do not call this working file receive. no file sending,
+  private files, general media compatibility, or receipts.
   keep backend-specific BLE code separate from the shared signed packet/chat
   layer. do not replay a possibly delivered user message on reconnect. BLE
   write success is not a delivery receipt.

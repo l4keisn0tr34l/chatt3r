@@ -13,8 +13,9 @@ and [laptop-to-laptop.md](laptop-to-laptop.md) before updating claims.
 build an infrastructure-free cross-platform link for nearby **text and files**.
 BitChat supplies the protocol/compatibility reference, not an invention we
 claim as ours. [context.md](../context.md) describes the long-term goal, not
-what is shipped. **small public file receive is opt-in and software-tested,
-not iPhone-radio-tested**. no file sending, private messages, delivery receipts
+what is shipped. **small public file receive is opt-in and software-tested;
+first iPhone image log shows no saved file**. no file sending,
+private messages, delivery receipts
 or full live-session reconnect are implemented.
 
 | path | evidence |
@@ -71,9 +72,10 @@ linux laptop (btleplug fresh scan + connect + subscribe)
   at most eight 16 KiB first-test `0x20` file assemblies for 30s;
   `baseline/file_store.rs` writes an explicit existing directory using a
   random `.bin` name, MIME/magic checks and a 16-file-per-run quota. no
-  filename from the wire becomes a path. **software-tested only**; no file
-  radio, Swift compression byte identity or actual stock-app media test yet.
-  no file sending, private media or delivery ACKs.
+  filename from the wire becomes a path. **software tests pass, first image
+  radio attempt reported no saved file**; Swift compression byte identity and
+  actual stock-app media compatibility remain unproven. no file sending,
+  private media or delivery ACKs.
 - [upstream-analysis.md](upstream-analysis.md) records source attribution;
   [direct-le.md](direct-le.md) records phone-path design/evidence;
   [windows.md](windows.md) has native PowerShell run commands;
@@ -133,12 +135,26 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 3. test Windows `/quit`/Ctrl-C and Linux teardown, out-of-range behavior and
    restart explicitly. the client does not reconnect an established session
    or provide application delivery ACKs.
-4. **first iPhone → Linux file radio test:** on Linux, enable receive-only
-   `--receive-files <existing-dir>` on the working stock phone/direct-LE link;
-   send a small public image from stock BitChat. confirm one `.bin` saved,
-   compare bytes/hash, note any `[drop]` error, and do not commit file contents
-   or raw logs. this is **pending**. Linux ↔ Linux still needs a capable
-   advertising adapter and a Linux GATT server; sending files is not shipped.
+4. **diagnose the failed first iPhone → Linux image test:** the user observed
+   `[iphone] hi`, 166-byte type-`0x01` frames, many 182-byte type-`0x20`
+   notifications rejected as `truncated packet` or unsupported flags, and
+   later 175/103-byte type-`0x20` frames rejected as unsupported fragmented
+   type. **no saved image was reported**, and the old log omits flags, declared
+   length, fragment index/total and original type. 182 equals this direct-LE
+   session's max characteristic value (ATT MTU 185), but **truncation at ATT
+   is a hypothesis, not established from value size alone**. pinned Swift
+   `TransportConfig.bleDefaultFragmentSize=469` and
+   `BLEOutboundFragmentPlanner` use that default for public files; link
+   planner excludes fragment packets from refragmentation. installed phone
+   code and chosen link may differ. new bounded metadata-only diagnostics
+   (`protocol.rs:frame_shape`, first six and every 50th 0x20) can identify
+   declared vs received size and the untrusted original-type field on a repeat.
+   don't ask for raw file bytes/addresses; don't blindly change `--write-limit`
+   (it controls **outbound** values) or reset pairings. if frames are truly
+   cut to 182 bytes while declaring larger, receiving alone cannot restore
+   them; test a targeted per-link size/ATT negotiation hypothesis separately.
+   Linux ↔ Linux still needs a capable advertising adapter and a Linux GATT
+   server; sending files is not shipped.
 
 ## local checks and safety
 

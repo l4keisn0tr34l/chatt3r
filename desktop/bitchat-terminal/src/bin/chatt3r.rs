@@ -763,6 +763,8 @@ async fn chat(
     let mut announce_tick = tokio::time::interval(Duration::from_secs(15));
     announce_tick.tick().await; // Schedule later announcements in 15s.
     let mut link_tick = tokio::time::interval(Duration::from_secs(2));
+    let mut observed_fragments = 0_usize;
+    let mut reported_fragment_errors = HashSet::new();
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
@@ -804,8 +806,21 @@ async fn chat(
             notification = notifications.next() => {
                 let Some(notification) = notification else { return Err("notification stream ended; rerun to reconnect".into()); };
                 if notification.uuid != CHARACTERISTIC { continue; }
-                output.diagnostic(&format!("[rx] value_bytes={} type={:?}", notification.value.len(), notification.value.get(1)))?;
-                if let Err(error) = receiver.receive(&notification.value, &output) { output.diagnostic(&format!("[drop] {error}"))?; }
+                let is_fragment = notification.value.get(1) == Some(&FRAGMENT);
+                if is_fragment { observed_fragments += 1; }
+                // File trains can contain hundreds of frames. Show only a few
+                // structural samples and every 50th; never print content or IDs.
+                let sample = !is_fragment || observed_fragments <= 6 || observed_fragments.is_multiple_of(50);
+                if sample {
+                    output.diagnostic(&format!("[rx] value_bytes={} type={:?}", notification.value.len(), notification.value.get(1)))?;
+                }
+                if let Err(error) = receiver.receive(&notification.value, &output) {
+                    let first_error = is_fragment && reported_fragment_errors.len() < 16 && reported_fragment_errors.insert(error.to_string());
+                    if sample || first_error {
+                        if is_fragment { output.diagnostic(&format!("[rx-shape] {}", protocol::frame_shape(&notification.value)))?; }
+                        output.diagnostic(&format!("[drop] {error}"))?;
+                    }
+                }
                 if !initial_sent && can_announce(wait_for_announcement, receiver.peers.len()) {
                     limit = writer.write_limit(configured_limit)?;
                     #[cfg(windows)]

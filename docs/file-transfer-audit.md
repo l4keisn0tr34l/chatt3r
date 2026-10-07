@@ -62,7 +62,7 @@ candidate below adds bounded expansion, signed peer admission, file-only
 fragment assembly and guarded storage; real stock-client testing is still
 needed before claiming interoperability.
 
-## opt-in receive-only first-radio candidate (software-tested, no phone file test)
+## opt-in receive-only first-radio candidate (software-tested, first phone file attempt failed)
 
 `--receive-files <existing-dir>` on **Linux stock phone/direct-LE client only**
 opts into a bounded public `0x22` path. file bytes arrive via the existing
@@ -82,11 +82,32 @@ non-symlink directory; it accepts a short JPEG/PNG/GIF/WebP only with matching
 magic or `application/octet-stream`, creates a random `.bin` with no wire
 filename, no auto-open, 0600 on Unix, and allows at most 16 saves per run.
 all in-memory results and byte/hash checks are software-tested; Windows
-cross-target checks do not test a radio. **no iPhone file was received yet.**
+cross-target checks do not test a radio. **a real iPhone image was attempted; no saved file was reported.**
 this is signed public plaintext, not pairing authentication, persistence
 across runs, generic media support or delivery receipts. the stock iOS UI
 inspected so far offers image/voice sending, not a proven generic picker.
-see [linux-iphone-test.md](linux-iphone-test.md) for the pending physical test.
+see [linux-iphone-test.md](linux-iphone-test.md) for the proposed diagnostic
+repeat, not a claimed working file path.
+
+### first image radio observation
+
+the user reported `[iphone] hi` public text, repeated type-`0x01`
+166-byte values, many type-`0x20` **182-byte** values rejected with
+`truncated packet` or unsupported flags, and later 175/103-byte type-`0x20`
+values rejected as unsupported fragmented type. no saved `.bin` was reported.
+`182` is the configured direct-LE session's ATT value limit (requested MTU
+185), but the old log has **no claimed payload lengths, flags, fragment
+indices or original types**; it does not identify which 0x20s carried the
+image or establish actual ATT truncation. the pinned Swift source uses
+`TransportConfig.bleDefaultFragmentSize=469` for public file fragments and
+`BLEOutboundLinkPlanner.plan` does not fragment a `fragment` again. that
+creates an MTU-mismatch hypothesis, **not a proven cause for the installed
+app**. `protocol.rs:frame_shape` now reports *only* version, flags, declared
+and actual frame sizes, and optional fragment index/count/original type for
+bounded samples in `--debug`, never peer IDs or content. a repeat should
+record a few sanitized `[rx-shape]` + `[drop]` lines and negotiated ATT MTU.
+do not alter bonds, guess `--write-limit` (outbound only), accept truncated
+bytes as a file, or report a working transfer yet.
 
 ## answer to the proposed protocol
 

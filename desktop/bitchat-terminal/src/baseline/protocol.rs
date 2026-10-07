@@ -12,6 +12,45 @@ pub const FRAGMENT: u8 = 0x20;
 pub const MAX_PAYLOAD: usize = 99; // Constants.swift sets compressionThresholdBytes = 100.
 const MAX_FRAME: usize = 16 * 1024;
 
+/// Metadata-only frame shape for diagnosing rejected notifications. Never
+/// include sender, recipient, fragment ID, content or a signature in logs.
+/// In particular, `actual < expected` only proves incomplete framing, not
+/// whether the peer sent too much, ATT capped it, or another link intervened.
+pub fn frame_shape(bytes: &[u8]) -> String {
+    let header = match bytes.first() {
+        Some(1) => 14,
+        Some(2) => 16,
+        _ => return format!("unrecognized version; actual={}", bytes.len()),
+    };
+    if bytes.len() < header + 8 {
+        return format!("short header; version={} actual={}", bytes[0], bytes.len());
+    }
+    let flags = bytes[11];
+    let length = if header == 14 {
+        u16::from_be_bytes(bytes[12..14].try_into().unwrap()) as usize
+    } else {
+        u32::from_be_bytes(bytes[12..16].try_into().unwrap()) as usize
+    };
+    let payload_start = header + 8 + if flags & 1 != 0 { 8 } else { 0 };
+    let expected = payload_start
+        .checked_add(length)
+        .and_then(|n| n.checked_add(if flags & 2 != 0 { 64 } else { 0 }));
+    let mut shape = format!("version={} kind=0x{:02x} flags=0x{flags:02x} declared_payload={length} actual={} expected={expected:?}", bytes[0], bytes[1], bytes.len());
+    // If the unsigned 0x20 fragment prefix survived, its index and original
+    // type distinguish media from announceV2 without disclosing the payload.
+    if bytes[1] == FRAGMENT && flags & !0x03 == 0 {
+        if let Some(meta) = bytes.get(payload_start..payload_start.saturating_add(13)) {
+            let index = u16::from_be_bytes(meta[8..10].try_into().unwrap());
+            let total = u16::from_be_bytes(meta[10..12].try_into().unwrap());
+            shape.push_str(&format!(
+                " fragment={index}/{total} original_type=0x{:02x}",
+                meta[12]
+            ));
+        }
+    }
+    shape
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Packet {
     pub version: u8,
@@ -347,6 +386,42 @@ mod tests {
 
     fn text() -> Packet {
         Packet::new(MESSAGE, [0x11; 8], 0x0102030405060708, b"hello".to_vec())
+    }
+
+    #[test]
+    fn rejected_fragment_diagnostics_expose_shape_not_packet_bytes() {
+        let mut fragment = Packet::new(
+            FRAGMENT,
+            [0x99; 8],
+            123,
+            [
+                vec![0xab; 8],
+                0_u16.to_be_bytes().to_vec(),
+                3_u16.to_be_bytes().to_vec(),
+                vec![0x22],
+                vec![0xcc; 150],
+            ]
+            .concat(),
+        );
+        let original = fragment.encode().unwrap();
+        // An incoming notification with an intact header/prefix but an
+        // incomplete body must not be silently treated as a 182-byte frame.
+        let clipped = &original[..182];
+        assert!(Packet::decode(clipped).is_err());
+        let info = frame_shape(clipped);
+        assert!(info.contains("actual=182"));
+        assert!(info.contains("expected=Some(185)"));
+        assert!(info.contains("fragment=0/3 original_type=0x22"));
+        assert!(!info.contains("abababab")); // fragment ID/content never printed
+        assert!(!info.contains("99999999")); // sender never printed
+        fragment.payload[0] = 0xcd;
+        assert_eq!(info, frame_shape(clipped)); // decoding shape is read-only
+        assert!(frame_shape(&[]).contains("unrecognized version"));
+        assert!(frame_shape(&[1, FRAGMENT]).contains("short header"));
+        let mut routed = original.clone();
+        routed[11] = 0x08;
+        assert!(frame_shape(&routed).contains("flags=0x08"));
+        assert!(!frame_shape(&routed).contains("original_type="));
     }
 
     #[test]
