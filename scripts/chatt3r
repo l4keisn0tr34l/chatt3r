@@ -28,7 +28,7 @@ usage() {
         '' \
         'keep the iphone unlocked with bitchat open in its bluetooth public room.' \
         'this uses a 128-byte write limit, not a measured mtu. override with --write-limit.' \
-        'public text max 99 utf-8 bytes; one small iphone image saved on radio. no file sending, dms or encryption.' \
+        'public text max 99 utf-8 bytes; repeated small iphone images saved on radio. no file sending, dms or encryption.' \
         'in chat: /peers, /announce, /quit. ctrl-c or ctrl-d also exits.' \
         'reconnect notes: docs/reconnect.md; pc host test: docs/windows.md'
 }

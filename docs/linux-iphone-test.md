@@ -77,9 +77,10 @@ to load a newly built binary. Ignored/malformed frame diagnostics require `--deb
 
 Messages are limited to **99 UTF-8 bytes**, not 99 characters. Public plaintext
 is signed but not confidential, not Noise-authenticated. Do not send secrets.
-The opt-in **small public file receiver** has now saved one 3,485-byte iPhone
-JPEG on radio, with local size/hash verification and full image decode.
-The user visually confirmed it matches the image sent; original-byte/hash
+The opt-in **small public file receiver** has four verified iPhone JPEG saves:
+3,485 bytes twice (identical hashes), plus 39,907 and 44,478 bytes. All fully
+decode; repeated receive and larger content are observed on radio.
+The user visually confirmed the first image matches the image sent; original-byte/hash
 comparison is unavailable. Earlier type-`0x20` values were
 rejected as truncated or unsupported, before file verification/saving. No file sending, private media,
 encryption sessions, auto-reconnection, delivery ACKs or gossip sync is implemented.
@@ -90,7 +91,7 @@ isolated two-device test may avoid compressed announcements; this is a temporary
 baseline limitation, not a protocol rule. If a signed public message arrives
 before a valid announcement, wait for the next announce and resend the message.
 
-## repeat a small receive-only public image (opt-in; one jpeg saved)
+## receive-only public images (opt-in; repeated and larger jpegs saved)
 
 keep your working phone link and bond unchanged. the stock iPhone UI in the
 inspected source can **send a public image/voice note**, not necessarily an
@@ -126,7 +127,8 @@ fragment decoding. if the iPhone resends a small image in its **public**
 Bluetooth room after a signed announcement, a successful receive would
 report `received-<random>.bin`, size and SHA-256; verify the saved size/hash
 manually, compare with known sender bytes when available, and record whether
-it arrived once. one small JPEG has been saved and decoded on radio; the
+it arrived once. four JPEG saves fully decode locally, including an identical
+repeat and 39,907/44,478-byte images received on radio; the
 earlier 46-part image and compressed-fragment behavior still need specific
 radio evidence.
 files are saved as **generic `.bin` without using the untrusted filename or
@@ -135,7 +137,7 @@ matching magic bytes and `application/octet-stream` are allowed for the first
 test. the 128-byte write limit is not a measured MTU or a phone file size
 promise. earlier runs recorded 504-byte file fragments arriving first as
 182 bytes, then fully at value limit 514 but rejected after ~36/46 parts.
-the latest run saved a **3,485-byte JPEG**, as recorded below. report just the negotiated MTU,
+the saved-image observations below now include **four valid JPEGs**. report just the negotiated MTU,
 a few sanitized `[rx-shape]`/`[drop]` lines if any, and whether one `.bin`
 was saved with matching contents; do not post device addresses, peer IDs,
 raw media or a full debug transcript. changing `--write-limit` does not
@@ -158,9 +160,24 @@ the excerpt does not include this run's negotiated MTU, fragment flags/count,
 or outer compression. do not infer that the earlier 46-part image was
 retried, or that compressed fragments were used. this confirms one small
 public iPhone JPEG stored by the bounded signed receiver, without establishing
-repeatability or broader media support. for a controlled repeat, record the
+repeatability or broader media support on its own; later observations below
+confirm a repeat and larger decoded content. for further tests, record the
 MTU and saved metadata and compare against known sender bytes if available;
 keep all existing size/signature bounds.
+
+### repeated and larger images (2026-10-07)
+
+after further user-reported iPhone sends, local read-only inspection found
+four saved JPEGs, all **0600**, RGB and passing full image decode:
+**3,485 bytes twice** (252×448, identical hashes), **39,907 bytes** and
+**44,478 bytes** (both 336×448). this confirms repeated receive and larger
+decoded image content. the two larger images have not yet been visually
+confirmed by the user in this record; original sender files are unavailable.
+
+the larger content exceeds 16 KiB, but the former assembly cap applied to
+encoded outer frames. their exact encoded sizes, fragment flags/count and
+compression were not retained. do not infer those from decoded file size.
+see [file-transfer-audit.md](file-transfer-audit.md) for the combined evidence.
 
 ## Record evidence
 

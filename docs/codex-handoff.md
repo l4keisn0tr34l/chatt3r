@@ -16,12 +16,13 @@ and [laptop-to-laptop.md](laptop-to-laptop.md) before updating claims.
 build an infrastructure-free cross-platform link for nearby **text and files**.
 BitChat supplies the protocol/compatibility reference, not an invention we
 claim as ours. [context.md](../context.md) describes the long-term goal, not
-what is shipped. **small public file receive is opt-in; one 3,485-byte iPhone
-JPEG was saved on radio and verified locally by size, SHA-256 matching the
-receiver output, and full image decode (252×448)**. the user visually
-confirmed the saved image matches the image sent. no original file is
+what is shipped. **small public file receive is opt-in; four iPhone JPEG
+saves are verified locally: 3,485 bytes twice (identical hashes), 39,907 and
+44,478 bytes; all fully decode**. the first pair is 252×448 and the larger
+images are 336×448. the user visually confirmed the first saved image
+matches the image sent. no original file is
 available for byte/hash comparison. ATT MTU 517/value 514 was confirmed on an
-earlier run; the successful run did not include negotiated MTU or fragment
+earlier run; the successful excerpts did not include negotiated MTU or fragment
 flags/count. no file sending,
 private messages, delivery receipts
 or full live-session reconnect are implemented.
@@ -33,7 +34,7 @@ or full live-session reconnect are implemented.
 | linux ↔ windows pc | **user-confirmed two-way public text over BLE with iphone Bluetooth off** using the stock service. Linux received signed `windows-pc` announcement and text `yo`, `ok got it`; Linux sent `hi`, `yoooooooo`. user also confirmed **two-way text** on the desktop-only service with phone Bluetooth **on throughout**; no simultaneous phone-on transcript or Wi-Fi/cellular switch states were recorded |
 | linux ↔ linux | not working; this laptop's Realtek adapter rejected a temporary BlueZ advertisement (`Invalid Parameters (0x0d)`) |
 | software-only simulated peers | signed two-way text, fragmented frames, duplicate/rejection tests; **not** radio evidence |
-| stock iphone → linux public image | one 3,485-byte JPEG saved after a signed announcement; local size/hash matched receiver output and the image fully decoded at 252×448. user visually confirmed it matches the image sent; original-image byte/hash comparison unavailable; no repeatability, larger-image or compressed-fragment claim |
+| stock iphone → linux public image | four valid JPEG saves: 3,485 bytes twice with identical hashes (252×448), plus 39,907 and 44,478 bytes (336×448); all fully decode locally. first image visually confirmed by user. repeated receive and larger content observed; original-byte comparison, encoded frame sizes and compression flags unavailable |
 
 public text is **not encrypted**. signing identities are ephemeral for each
 run, not trusted device pairing. maximum text is **99 UTF-8 bytes**. the
@@ -84,8 +85,10 @@ linux laptop (btleplug fresh scan + connect + subscribe)
   working text reassembler remain separate. `baseline/file_store.rs` writes
   to an explicit existing directory using a random `.bin` name, MIME/magic
   checks and a 16-file-per-run quota. no
-  filename from the wire becomes a path. **software tests pass, and one
-  3,485-byte stock-iPhone JPEG was saved and decoded on radio**. the earlier
+  filename from the wire becomes a path. **software tests pass; four
+  stock-iPhone JPEG saves fully decode, including an identical 3,485-byte
+  repeat and larger 39,907/44,478-byte content**. exact encoded outer-frame
+  sizes were not retained. the earlier
   46-part image and compressed-fragment behavior still need specific radio
   evidence; the successful excerpt records value sizes but no flags/count.
   original-byte/hash comparison, Swift compression byte identity and broader
@@ -150,12 +153,15 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 3. test Windows `/quit`/Ctrl-C and Linux teardown, out-of-range behavior and
    restart explicitly. the client does not reconnect an established session
    or provide application delivery ACKs.
-4. **repeat the bounded file path and compare known sender bytes:** one
+4. **compare known sender bytes and retain specific compression evidence:** one
    small public iPhone JPEG has now been saved after rebuilding. local checks
    found **3,485 bytes, JPEG 252×448 RGB, mode 0600**, with the SHA-256 matching
    the receiver's output and full image decode passing. the user visually
    confirmed it matches the image sent. no original file is available, so
-   original-byte equality is not established.
+   original-byte equality is not established. subsequent sends produced an
+   identical 3,485-byte repeat (matching hash) and 39,907/44,478-byte JPEGs
+   that both fully decode at 336×448 RGB. repeated receive and larger decoded
+   content are confirmed; encoded outer-frame sizes were not retained.
    the excerpt contains type-`0x20` values of 458/328/80/168/504/431 bytes,
    but no flags, fragment counts or negotiated MTU; do not infer those from
    this successful save. retain only sanitized metadata in git.
@@ -172,8 +178,8 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
    with exact stream length/end/ratio and <=1024-byte expanded prefix, then
    checks for original `0x22`. the full v2 packet still requires peer-key
    signature, size, MIME and safe file-store validation. the new collector
-   path has saved the small JPEG on radio; **larger assembly and compressed
-   fragments remain software-tested without specific radio confirmation**.
+   path has saved small and larger JPEGs on radio; **exact >16 KiB encoded
+   assembly and compressed fragments lack specific recorded radio metadata**.
    rebuild before a physical repeat, use one harmless public image with user
    consent, and compare saved bytes with known sender bytes when available.
    share only sanitized error/size/fragment metadata and whether a

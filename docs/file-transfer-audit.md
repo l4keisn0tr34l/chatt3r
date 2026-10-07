@@ -1,6 +1,6 @@
 # file transfer audit — no new wire protocol yet
 
-source pins and legal restrictions: [upstream reuse audit](upstream-reuse-audit.md). the source analysis and software checkpoints below are followed by **one saved stock-iPhone JPEG on physical BLE**, verified locally by size/hash and full image decode and visually confirmed by the user as the image sent; original-byte/hash comparison is unavailable. the original text-only `chatt3r.rs:Receiver::receive` ignored `0x22` and `baseline/protocol.rs:Reassembler::accept` rejects file fragments; naive file support was impossible. a later first implementation step added `baseline/file_packet.rs`, a **pure, bounded canonical-v2-layout TLV codec**, exposed from `src/lib.rs` and unit-tested with `test-vectors/file-payload-v2.json`. its reader deliberately rejects legacy lengths and multiple content TLVs that upstream can tolerate. it was **not wired into** `chatt3r` in that first checkpoint. the Python CLI is GPL-3.0 reference, not drop-in reusable code.
+source pins and legal restrictions: [upstream reuse audit](upstream-reuse-audit.md). the source analysis and software checkpoints below are followed by **four saved stock-iPhone JPEGs on physical BLE**, verified locally by size/hash and full image decode. the first image is visually confirmed by the user, its repeat has identical bytes, and two larger images contain 39,907/44,478 bytes; original-byte/hash comparison is unavailable. the original text-only `chatt3r.rs:Receiver::receive` ignored `0x22` and `baseline/protocol.rs:Reassembler::accept` rejects file fragments; naive file support was impossible. a later first implementation step added `baseline/file_packet.rs`, a **pure, bounded canonical-v2-layout TLV codec**, exposed from `src/lib.rs` and unit-tested with `test-vectors/file-payload-v2.json`. its reader deliberately rejects legacy lengths and multiple content TLVs that upstream can tolerate. it was **not wired into** `chatt3r` in that first checkpoint. the Python CLI is GPL-3.0 reference, not drop-in reusable code.
 
 ## existing BitChat public file envelope
 
@@ -36,8 +36,8 @@ was copied. **there is no BLE file path or disk output**; 64 KiB is not a
 verified interoperable radio size (at the configured 128-byte frame cap,
 Android's 256-fragment ceiling may be reached much earlier). at this earlier
 checkpoint, outer signatures, compression and per-type fragment recovery were
-still missing; the later opt-in path below now has one small stock-iPhone
-JPEG receive result, without broader stock-app validation.
+still missing; the later opt-in path below now has small stock-iPhone
+JPEG receive results, without broader stock-app validation.
 
 ## outer-frame fixture checkpoint (software only)
 
@@ -60,11 +60,11 @@ the signature over the received compressed *wire* bytes does not establish
 Apple accepts an outbound packet or that a stock peer emitted it. that earlier
 checkpoint changed no BLE code or disk files. the receive-only first-radio
 candidate below adds bounded expansion, signed peer admission, file-only
-fragment assembly and guarded storage. the later saved-JPEG checkpoint
-establishes only that one stock-iPhone receive case; it does not validate
-outbound signing or general stock-client interoperability.
+fragment assembly and guarded storage. the saved-image observations below
+establish these stock-iPhone receive cases without validating outbound
+signing or general stock-client interoperability.
 
-## opt-in receive-only path (one small iphone jpeg saved on radio)
+## opt-in receive-only path (four iphone jpeg saves verified)
 
 `--receive-files <existing-dir>` on **Linux stock phone/direct-LE client only**
 opts into a bounded public `0x22` path. file bytes arrive via the existing
@@ -86,8 +86,8 @@ magic or `application/octet-stream`, creates a random `.bin` with no wire
 filename, no auto-open, 0600 on Unix, and allows at most 16 saves per run.
 in-memory edge cases and synthetic byte comparisons are software-tested;
 Windows cross-target checks do not test a radio. **after the earlier failed
-image attempts, one 3,485-byte iPhone JPEG was saved on radio and verified
-locally**, as recorded below.
+image attempts, four iPhone JPEG saves were verified locally, including
+a repeat and 39,907/44,478-byte images**, as recorded below.
 this is signed public plaintext, not pairing authentication, persistence
 across runs, generic media support or delivery receipts. the stock iOS UI
 inspected so far offers image/voice sending, not a proven generic picker.
@@ -184,6 +184,29 @@ compatibility. this run's supplied lines omit negotiated MTU, fragment
 flags/count and outer compression, so the earlier 46-part image and bounded
 compressed-fragment implementation still need specific radio confirmation.
 the earlier **517/value 514** negotiation remains separate evidence.
+
+### repeated and larger saved jpegs (2026-10-07)
+
+the user reported additional iPhone image sends and asked for a local check.
+read-only inspection found **four receiver-named JPEG files**, all mode
+**0600**, RGB, and passing Pillow verification and full decode:
+
+| saved content bytes | saves | decoded dimensions | observation |
+| --- | --- | --- | --- |
+| 3,485 | 2 | 252×448 | identical SHA-256; the repeated save matches the first file byte for byte |
+| 39,907 | 1 | 336×448 | valid larger JPEG |
+| 44,478 | 1 | 336×448 | valid larger JPEG |
+
+this adds **repeated receive and two larger decoded images** to the first
+visually confirmed save. the larger content is above 16 KiB, but the old
+collector budget applied to the **encoded signed outer frame**, not decoded
+image content. exact wire sizes, fragment counts/flags and outer compression
+were not retained for these saves, so do not infer a particular encoded
+assembly size or compressed-fragment path. the prior 46-part failure remains
+history; this is not a recorded retry of that exact stream. no original
+sender files are available for byte comparison, and the user has not yet
+visually confirmed the two larger images in this record. no raw media,
+local filenames, hashes or peer IDs are stored here.
 
 ## answer to the proposed protocol
 

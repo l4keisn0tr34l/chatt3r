@@ -29,7 +29,11 @@ what has shipped. prefer observed results and current code over old roadmaps.
   size, SHA-256 matching the receiver output, and full image decode (252×448).
   the user visually confirmed the saved image matches the image sent. no
   original file was available for byte/hash comparison; this run did not record
-  fragment flags/count or its negotiated MTU. the earlier 46-part image and
+  fragment flags/count or its negotiated MTU. subsequent user image sends
+  left four valid JPEG saves: 3,485 bytes twice (identical hashes), 39,907
+  and 44,478 bytes. all fully decode; the two larger images are 336×448 RGB.
+  repeated receive and larger decoded content are now observed. encoded
+  outer-frame sizes were not retained. the earlier 46-part image and
   compressed-fragment behavior still need specific radio evidence. default text
   stays at 185. no file sending, private files,
   general media compatibility, or receipts.

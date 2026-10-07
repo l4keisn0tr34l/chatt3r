@@ -6,8 +6,8 @@ cable, account, or server needed by the desktop client during chat.
 built on the bitchat ecosystem instead of starting a new protocol from scratch.
 the longer-term goal is an offline link for text **and files** across linux,
 windows, and iphone. right now, it's an early **public-text client** with
-opt-in receive-only small public files on the Linux phone path; one small
-iPhone JPEG has been saved over BLE and verified locally.
+opt-in receive-only small public files on the Linux phone path; four iPhone
+JPEG saves have been verified locally, including a repeat and two larger images.
 
 > public messages are not encrypted. use test text, not secrets.
 
@@ -20,7 +20,7 @@ iPhone JPEG has been saved over BLE and verified locally.
 | startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait (closed-app wait observed, reopen transition pending) |
 | known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
 | longer text / compression | not supported yet; max 99 utf-8 bytes |
-| public file receive | opt-in `--receive-files <existing-dir>` on Linux phone link; **one 3,485-byte iPhone JPEG saved on radio**, with size/hash verified locally and full image decode. user visually confirmed it matches the image sent; original-byte/hash comparison unavailable. earlier MTU 517/value 514 and full 504-byte fragments were confirmed; the earlier 46-part image and compressed-fragment behavior still need specific radio evidence. no sending, private files, or general media guarantee |
+| public file receive | opt-in `--receive-files <existing-dir>` on Linux phone link; **four iPhone JPEG saves verified locally**: 3,485 bytes twice with identical hashes, plus 39,907 and 44,478 bytes; all fully decode. user visually confirmed the first image; original-byte/hash comparison unavailable. earlier MTU 517/value 514 and full 504-byte fragments were confirmed; the earlier 46-part image and compressed-fragment behavior still need specific radio evidence. no sending, private files, or general media guarantee |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
 | linux ↔ windows pc text | **user-confirmed two-way signed public text over BLE** on the stock service with phone Bluetooth off **and** desktop-only service with phone Bluetooth on throughout; a simultaneous phone-on console transcript was not retained |
@@ -268,15 +268,15 @@ procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
    [docs/laptop-to-laptop.md](docs/laptop-to-laptop.md).
 3. **repeat and verify receive-only small files on hardware:** Linux `--receive-files` now
    verifies signed public `0x22` packets, caps expansion and stores selected
-   MIME as randomly named `.bin` files. one **3,485-byte stock-iPhone JPEG**
-   was saved on radio; its size/hash matched the receiver report and it fully
-   decoded at 252×448. the user visually confirmed it matches the image sent;
-   no original file was available for byte comparison.
+   MIME as randomly named `.bin` files. four stock-iPhone JPEG saves now
+   fully decode: **3,485 bytes twice** (identical hashes, 252×448), plus
+   **39,907 and 44,478 bytes** (both 336×448). the user visually confirmed
+   the first image; no original file was available for byte comparison.
    earlier file mode negotiated **ATT MTU 517/value 514**, but a 46-part image
    hit the old 16 KiB collector cap. the larger bounded collector and compressed
-   fragments pass software tests; the small saved image does not establish
-   either behavior on radio. record repeatability and compare with known
-   sender bytes when available. plain
+   fragments pass software tests. larger decoded content and repeated receive
+   are now observed; exact encoded assembly sizes and compression flags were
+   not retained. compare with known sender bytes when available. plain
    text MTU remains 185. see [file-transfer-audit](docs/file-transfer-audit.md).
    no file sending, private files, arbitrary file picker or delivery receipts
    are implemented.
