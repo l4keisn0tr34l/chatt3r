@@ -1,6 +1,6 @@
 # file transfer audit — no new wire protocol yet
 
-source pins and legal restrictions: [upstream reuse audit](upstream-reuse-audit.md). this is source analysis, **not** a successful chatt3r file-radio test. the original text-only `chatt3r.rs:Receiver::receive` ignored `0x22` and `baseline/protocol.rs:Reassembler::accept` rejects file fragments; naive file support was impossible. a later first implementation step added `baseline/file_packet.rs`, a **pure, bounded canonical-v2-layout TLV codec**, exposed from `src/lib.rs` and unit-tested with `test-vectors/file-payload-v2.json`. its reader deliberately rejects legacy lengths and multiple content TLVs that upstream can tolerate. it was **not wired into** `chatt3r` in that first checkpoint. the Python CLI is GPL-3.0 reference, not drop-in reusable code.
+source pins and legal restrictions: [upstream reuse audit](upstream-reuse-audit.md). the source analysis and software checkpoints below are followed by **one saved stock-iPhone JPEG on physical BLE**, verified locally by size/hash and full image decode; original-image comparison is unavailable. the original text-only `chatt3r.rs:Receiver::receive` ignored `0x22` and `baseline/protocol.rs:Reassembler::accept` rejects file fragments; naive file support was impossible. a later first implementation step added `baseline/file_packet.rs`, a **pure, bounded canonical-v2-layout TLV codec**, exposed from `src/lib.rs` and unit-tested with `test-vectors/file-payload-v2.json`. its reader deliberately rejects legacy lengths and multiple content TLVs that upstream can tolerate. it was **not wired into** `chatt3r` in that first checkpoint. the Python CLI is GPL-3.0 reference, not drop-in reusable code.
 
 ## existing BitChat public file envelope
 
@@ -36,7 +36,8 @@ was copied. **there is no BLE file path or disk output**; 64 KiB is not a
 verified interoperable radio size (at the configured 128-byte frame cap,
 Android's 256-fragment ceiling may be reached much earlier). at this earlier
 checkpoint, outer signatures, compression and per-type fragment recovery were
-still missing; the later opt-in candidate below is not stock-app-validated.
+still missing; the later opt-in path below now has one small stock-iPhone
+JPEG receive result, without broader stock-app validation.
 
 ## outer-frame fixture checkpoint (software only)
 
@@ -59,10 +60,11 @@ the signature over the received compressed *wire* bytes does not establish
 Apple accepts an outbound packet or that a stock peer emitted it. that earlier
 checkpoint changed no BLE code or disk files. the receive-only first-radio
 candidate below adds bounded expansion, signed peer admission, file-only
-fragment assembly and guarded storage; real stock-client testing is still
-needed before claiming interoperability.
+fragment assembly and guarded storage. the later saved-JPEG checkpoint
+establishes only that one stock-iPhone receive case; it does not validate
+outbound signing or general stock-client interoperability.
 
-## opt-in receive-only first-radio candidate (software-tested, first phone file attempt failed)
+## opt-in receive-only path (one small iphone jpeg saved on radio)
 
 `--receive-files <existing-dir>` on **Linux stock phone/direct-LE client only**
 opts into a bounded public `0x22` path. file bytes arrive via the existing
@@ -82,13 +84,15 @@ checks TLV size agreement, single content tag and <=64 KiB content.
 non-symlink directory; it accepts a short JPEG/PNG/GIF/WebP only with matching
 magic or `application/octet-stream`, creates a random `.bin` with no wire
 filename, no auto-open, 0600 on Unix, and allows at most 16 saves per run.
-all in-memory results and byte/hash checks are software-tested; Windows
-cross-target checks do not test a radio. **a real iPhone image was attempted; no saved file was reported.**
+in-memory edge cases and synthetic byte comparisons are software-tested;
+Windows cross-target checks do not test a radio. **after the earlier failed
+image attempts, one 3,485-byte iPhone JPEG was saved on radio and verified
+locally**, as recorded below.
 this is signed public plaintext, not pairing authentication, persistence
 across runs, generic media support or delivery receipts. the stock iOS UI
 inspected so far offers image/voice sending, not a proven generic picker.
-see [linux-iphone-test.md](linux-iphone-test.md) for the proposed diagnostic
-repeat, not a claimed working file path.
+see [linux-iphone-test.md](linux-iphone-test.md) for the narrow saved-image
+evidence and a controlled repeat.
 
 ### first image radio observation
 
@@ -145,10 +149,40 @@ checks lengths, inflates, then checks the **expanded** 13-byte prefix for
 original `0x22`; non-file frames still follow the existing text path (and may
 be rejected). file fragments remain unsigned until the **complete** outer
 v2 file is bound to a validated announcement and signature-checked before
-safe storage. synthetic 46/47-part and compressed-fragment tests pass; none
-of this new parsing has been tested on the phone radio. do not alter bonds,
-guess `--write-limit` (outbound only), accept incomplete files or report a
-working transfer yet.
+safe storage. synthetic 46/47-part and compressed-fragment tests pass. the
+later small saved image exercises the receive path on radio, but its excerpt
+does not establish the fragment compression flags or a >16 KiB assembly.
+do not alter bonds, guess `--write-limit` (outbound only), or accept incomplete
+files.
+
+### first saved iphone jpeg (2026-10-07)
+
+using receiver code at `dff1e31`, after the launcher rebuild and passing Linux unit, strict Clippy, launcher
+and terminal PTY checks, the user reported a signed iPhone announcement,
+type-`0x20` notification values of 458/328/80/168/504/431 bytes, and one save
+of **3,485 bytes**. local read-only checks independently found a 3,485-byte
+file with mode **0600**, `image/jpeg`, and a SHA-256 matching the receiver's
+printed digest. Pillow verification and full decode passed: **JPEG, 252×448,
+RGB**. the user has no original image saved for comparison. no media, local
+filename/path, peer ID or raw transcript is retained here.
+
+the exercised data flow is BLE notification →
+`chatt3r.rs:Receiver::receive` → `file_fragments.rs:decode_file_candidate` /
+`FileFragments::accept` → `Receiver::receive_file` → `FileWire::parse` /
+`decode_verified` using the signed announcement's key → bounded file TLV
+decode → `IncomingFiles::save` → synced random `.bin` and content hash.
+the BitChat envelope, TLVs and fragment layout are upstream references;
+the bounded Rust receiver and storage policy are chatt3r work. the save occurs
+after signature, metadata, size and MIME checks; it is stronger evidence than
+a subscription or successful transport write.
+
+this establishes **one small public JPEG received and stored**, without
+proving equality with the original photo, repeatability, file sending, private
+media, delivery receipts, Swift compression byte identity or general media
+compatibility. this run's supplied lines omit negotiated MTU, fragment
+flags/count and outer compression, so the earlier 46-part image and bounded
+compressed-fragment implementation still need specific radio confirmation.
+the earlier **517/value 514** negotiation remains separate evidence.
 
 ## answer to the proposed protocol
 

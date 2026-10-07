@@ -29,8 +29,10 @@ available for regression testing.
 windows → stock iphone text is also user-confirmed on a Windows central client;
 iphone → windows is not separately confirmed.
 linux ↔ iphone text is user-confirmed bidirectional and offline. small
-public file **receive** is now Linux phone-link opt-in, software-tested only;
-no phone file transfer has been demonstrated. no file sending, private chat,
+public file **receive** is Linux phone-link opt-in; one **3,485-byte iPhone
+JPEG** was saved on radio, with local size/hash verification and full image
+decode. original-image comparison and repeatability remain unconfirmed.
+see [file-transfer-audit.md](file-transfer-audit.md). no file sending, private chat,
 relaying or application delivery receipts are shipped.
 
 ## hardware and library check on this linux laptop

@@ -77,8 +77,9 @@ to load a newly built binary. Ignored/malformed frame diagnostics require `--deb
 
 Messages are limited to **99 UTF-8 bytes**, not 99 characters. Public plaintext
 is signed but not confidential, not Noise-authenticated. Do not send secrets.
-The opt-in **small public file receiver** is software-tested; the first real
-iPhone image log **shows no saved file**. repeated type-`0x20` values were
+The opt-in **small public file receiver** has now saved one 3,485-byte iPhone
+JPEG on radio, with local size/hash verification and full image decode.
+Original-image comparison is unavailable. Earlier type-`0x20` values were
 rejected as truncated or unsupported, before file verification/saving. No file sending, private media,
 encryption sessions, auto-reconnection, delivery ACKs or gossip sync is implemented.
 
@@ -88,7 +89,7 @@ isolated two-device test may avoid compressed announcements; this is a temporary
 baseline limitation, not a protocol rule. If a signed public message arrives
 before a valid announcement, wait for the next announce and resend the message.
 
-## retry the first receive-only public image (opt-in; still unproven)
+## repeat a small receive-only public image (opt-in; one jpeg saved)
 
 keep your working phone link and bond unchanged. the stock iPhone UI in the
 inspected source can **send a public image/voice note**, not necessarily an
@@ -122,21 +123,42 @@ had compression flag `0x04` (not proven to be file frames). after rebuilding,
 the file-only path allows bounded ~65 KiB assembly and bounded compressed
 fragment decoding. if the iPhone resends a small image in its **public**
 Bluetooth room after a signed announcement, a successful receive would
-report `received-<random>.bin`, size and SHA-256; verify bytes/hash manually
-and record whether it arrived once. this change is **software-tested only**.
+report `received-<random>.bin`, size and SHA-256; verify the saved size/hash
+manually, compare with known sender bytes when available, and record whether
+it arrived once. one small JPEG has been saved and decoded on radio; the
+earlier 46-part image and compressed-fragment behavior still need specific
+radio evidence.
 files are saved as **generic `.bin` without using the untrusted filename or
 auto-opening media**. only jpeg/png/gif/webp with
 matching magic bytes and `application/octet-stream` are allowed for the first
 test. the 128-byte write limit is not a measured MTU or a phone file size
 promise. earlier runs recorded 504-byte file fragments arriving first as
 182 bytes, then fully at value limit 514 but rejected after ~36/46 parts.
-there is still **no confirmed saved image**. report just the negotiated MTU,
+the latest run saved a **3,485-byte JPEG**, as recorded below. report just the negotiated MTU,
 a few sanitized `[rx-shape]`/`[drop]` lines if any, and whether one `.bin`
 was saved with matching contents; do not post device addresses, peer IDs,
 raw media or a full debug transcript. changing `--write-limit` does not
 change incoming frame size; don't reset Bluetooth or remove bonds. other
 possible drops remain MIME, signature, 64 KiB content cap, ~65 KiB outer
 frame, sender admission or unsupported private media.
+
+### first saved public image (2026-10-07)
+
+the user reported a signed iPhone announcement and type-`0x20` values of
+458/328/80/168/504/431 bytes followed by one saved `.bin`. read-only local
+verification confirmed **3,485 bytes**, **0600** permissions, `image/jpeg`,
+and a SHA-256 matching the receiver's output. Pillow verified and fully
+decoded the JPEG as **252×448 RGB**. the user has no original image saved,
+so there is no original-byte/hash comparison. no private media, peer ID,
+local file path or raw image is included in this evidence record.
+
+the excerpt does not include this run's negotiated MTU, fragment flags/count,
+or outer compression. do not infer that the earlier 46-part image was
+retried, or that compressed fragments were used. this confirms one small
+public iPhone JPEG stored by the bounded signed receiver, without establishing
+repeatability or broader media support. for a controlled repeat, record the
+MTU and saved metadata and compare against known sender bytes if available;
+keep all existing size/signature bounds.
 
 ## Record evidence
 

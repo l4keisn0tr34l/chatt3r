@@ -25,8 +25,12 @@ what has shipped. prefer observed results and current code over old roadmaps.
   `0x04` (their original types were not captured). the opt-in file-only path
   now uses the bounded signed-v2 outer cap (~65 KiB) and can decode bounded
   raw-DEFLATE fragment frames before full outer-signature validation; this
-  change is **software-tested, not yet repeated on radio**. default text
-  stays at 185. no saved iPhone image yet; no file sending, private files,
+  path then saved a **3,485-byte iPhone JPEG on radio**, verified locally by
+  size, SHA-256 matching the receiver output, and full image decode (252×448).
+  no original image was available for comparison; this run did not record
+  fragment flags/count or its negotiated MTU. the earlier 46-part image and
+  compressed-fragment behavior still need specific radio evidence. default text
+  stays at 185. no file sending, private files,
   general media compatibility, or receipts.
   keep backend-specific BLE code separate from the shared signed packet/chat
   layer. do not replay a possibly delivered user message on reconnect. BLE
