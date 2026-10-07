@@ -28,8 +28,10 @@ second subscriber in earlier stock-service runs. Windows
 available for regression testing.
 windows → stock iphone text is also user-confirmed on a Windows central client;
 iphone → windows is not separately confirmed.
-linux ↔ iphone text is user-confirmed bidirectional and offline. no files,
-private chat, relaying or application delivery receipts are shipped.
+linux ↔ iphone text is user-confirmed bidirectional and offline. small
+public file **receive** is now Linux phone-link opt-in, software-tested only;
+no phone file transfer has been demonstrated. no file sending, private chat,
+relaying or application delivery receipts are shipped.
 
 ## hardware and library check on this linux laptop
 

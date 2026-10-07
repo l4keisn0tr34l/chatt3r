@@ -19,6 +19,7 @@ usage() {
         'chatt3r --scan-only --scan-seconds 30    scan without connecting' \
         'chatt3r --desktop-peer --debug    scan for a windows/laptop host, not the phone' \
         'chatt3r --direct-le <phone-address>   linux LE-only recovery for a known phone' \
+        'chatt3r --receive-files <existing-dir>   opt-in small public file receive on linux phone link' \
         'chatt3r --direct-le <address> --wait-for-peer   wait before starting chat' \
         'CHATT3R_LE_PEER=<phone-address> chatt3r    use that phone by default (local setting)' \
         'CHATT3R_LE_PEER= chatt3r    temporarily bypass your saved phone' \
@@ -27,7 +28,7 @@ usage() {
         '' \
         'keep the iphone unlocked with bitchat open in its bluetooth public room.' \
         'this uses a 128-byte write limit, not a measured mtu. override with --write-limit.' \
-        'public text only, max 99 utf-8 bytes. no files, dms, or message encryption yet.' \
+        'public text max 99 utf-8 bytes; file receive is untested on radio. no file sending, dms or encryption.' \
         'in chat: /peers, /announce, /quit. ctrl-c or ctrl-d also exits.' \
         'reconnect notes: docs/reconnect.md; pc host test: docs/windows.md'
 }

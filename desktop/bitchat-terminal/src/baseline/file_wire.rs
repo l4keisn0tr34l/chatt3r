@@ -4,6 +4,7 @@
 //! that another implementation would recompress to identical canonical bytes.
 
 use ed25519_dalek::{Signature, VerifyingKey};
+use flate2::{Decompress, FlushDecompress, Status};
 
 use super::file_packet::{FilePayload, MAX_FILE_BYTES};
 
@@ -115,6 +116,54 @@ impl<'a> FileWire<'a> {
         }
         FilePayload::decode(self.wire_payload)
     }
+
+    /// Verify before expanding untrusted bytes. The caller must first bind
+    /// sender/timestamp to its live peer and a verified announcement key.
+    pub fn decode_verified(&self, key: &VerifyingKey) -> Result<FilePayload, &'static str> {
+        self.verify_wire_signature(key)?;
+        match self.original_size {
+            None => self.uncompressed_payload(),
+            Some(size) => {
+                let bytes = inflate_exact(self.wire_payload, size)?;
+                FilePayload::decode(&bytes)
+            }
+        }
+    }
+}
+
+fn inflate_exact(compressed: &[u8], expected: usize) -> Result<Vec<u8>, &'static str> {
+    if expected == 0 || expected > MAX_TLV_BYTES || compressed.is_empty() {
+        return Err("invalid raw DEFLATE bounds");
+    }
+    // One extra output byte detects under-declared expansion. Require the
+    // end marker AND full input consumption; a full output buffer is not proof
+    // of completion, and trailing compressed bytes must not be accepted.
+    let mut output = vec![0; expected + 1];
+    let mut inflater = Decompress::new(false); // false = raw DEFLATE, no zlib header
+    loop {
+        let (before_in, before_out) = (inflater.total_in(), inflater.total_out());
+        let status = inflater
+            .decompress(
+                &compressed[before_in as usize..],
+                &mut output[before_out as usize..],
+                FlushDecompress::Finish,
+            )
+            .map_err(|_| "invalid raw DEFLATE stream")?;
+        let (read, written) = (inflater.total_in() as usize, inflater.total_out() as usize);
+        if written > expected {
+            return Err("expanded file exceeds declared size");
+        }
+        if status == Status::StreamEnd {
+            if read != compressed.len() || written != expected {
+                return Err("incomplete or trailing raw DEFLATE data");
+            }
+            output.truncate(expected);
+            return Ok(output);
+        }
+        if read == before_in as usize && written == before_out as usize {
+            return Err("stalled or incomplete raw DEFLATE stream");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -148,12 +197,15 @@ mod tests {
                 case["compressed"].as_bool().unwrap()
             );
             parsed.verify_wire_signature(&key).unwrap();
+            let decoded = parsed.decode_verified(&key).unwrap();
+            assert_eq!(decoded.file_name.as_deref(), Some("note.txt"));
             if parsed.original_size.is_none() {
                 let file = parsed.uncompressed_payload().unwrap();
                 assert_eq!(file.file_name.as_deref(), Some("note.txt"));
                 assert_eq!(file.content, b"hello from nearby\n");
             } else {
                 assert!(parsed.uncompressed_payload().is_err());
+                assert_eq!(decoded.content, vec![b'A'; 400]);
                 assert_eq!(
                     parsed.original_size,
                     Some(case["payload_length"].as_u64().unwrap() as usize)
@@ -183,6 +235,22 @@ mod tests {
                 .verify_wire_signature(&key)
                 .is_err());
         }
+    }
+
+    #[test]
+    fn raw_deflate_must_finish_exactly_at_declared_size_and_input_end() {
+        let data = vectors();
+        let case = &data["cases"][1];
+        let compressed = hex::decode(case["raw_deflate_hex"].as_str().unwrap()).unwrap();
+        assert_eq!(inflate_exact(&compressed, 450).unwrap().len(), 450);
+        assert!(inflate_exact(&compressed, 449).is_err());
+        assert!(inflate_exact(&compressed, 451).is_err());
+        assert!(inflate_exact(&compressed[..compressed.len() - 1], 450).is_err());
+        let mut trailing = compressed.clone();
+        trailing.push(0);
+        assert!(inflate_exact(&trailing, 450).is_err());
+        assert!(inflate_exact(&[0xff, 0xff, 0xff], 450).is_err());
+        assert!(inflate_exact(&compressed, MAX_TLV_BYTES + 1).is_err());
     }
 
     #[test]

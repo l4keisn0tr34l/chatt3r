@@ -1,6 +1,8 @@
 //! Minimal hardware interoperability harness, not a full BitChat client.
 #[path = "../baseline/discovery.rs"]
 mod discovery;
+#[path = "../baseline/file_fragments.rs"]
+mod file_fragments;
 #[cfg(any(windows, test))]
 #[path = "../baseline/host_policy.rs"]
 mod host_policy;
@@ -15,6 +17,7 @@ mod ui;
 #[path = "../baseline/windows_gatt.rs"]
 mod windows_gatt;
 
+use bitchat_poc::{file_store::IncomingFiles, file_wire::FileWire};
 use btleplug::api::{
     BDAddr, Central, CentralEvent, CharPropFlags, Characteristic, Manager as _, Peripheral as _,
     ScanFilter, ValueNotification, WriteType,
@@ -29,6 +32,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::future::Future;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{sleep, timeout, Duration, Instant};
 use uuid::Uuid;
@@ -53,6 +57,7 @@ struct Options {
     direct_le: Option<BDAddr>,
     wait_for_peer: bool,
     debug: bool,
+    receive_files: Option<PathBuf>,
 }
 
 fn options() -> Result<Option<Options>> {
@@ -71,6 +76,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Option<Option
         direct_le: None,
         wait_for_peer: false,
         debug: false,
+        receive_files: None,
     };
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -85,7 +91,8 @@ Usage: chatt3r --write-limit <bytes> [--name <nickname>] [--debug]\n\
        chatt3r --host --stock-host --write-limit <bytes> (proven phone-off service fallback)\n\
        chatt3r --direct-le <phone-address> [--wait-for-peer] [--debug] (linux LE-only link)\n\
 --write-limit: operator-provided characteristic value limit, NOT measured MTU (36..512).\n\
-Short public messages only (99 UTF-8 bytes). No confidentiality, DMs, files or relaying.\n\
+--receive-files <existing-dir>: opt-in small public file receive on Linux phone link; saves .bin only.\n\
+Short public messages only (99 UTF-8 bytes). No confidentiality, DMs, file sending or relaying.\n\
 For phone mode keep stock BitChat open on iPhone in its public room; desktop mode needs Windows --host.\n\
 Commands: /peers, /announce, /quit. Ctrl-C / Ctrl-D exit. Run without sudo first.\n\
 Quiet by default; --debug shows BLE diagnostics. Nicknames are colored per peer.\n\
@@ -109,6 +116,9 @@ Arrow keys edit/recall input; incoming messages preserve your draft. NO_COLOR di
             }
             "--wait-for-peer" => options.wait_for_peer = true,
             "--debug" | "-d" => options.debug = true,
+            "--receive-files" => {
+                options.receive_files = Some(args.next().ok_or("missing receive directory")?.into())
+            }
             _ => return Err(format!("unknown argument: {arg}; use --help").into()),
         }
     }
@@ -120,6 +130,11 @@ Arrow keys edit/recall input; incoming messages preserve your draft. NO_COLOR di
     }
     if options.direct_le.is_some() && options.scan_only {
         return Err("--direct-le connects; it cannot be combined with --scan-only".into());
+    }
+    if options.receive_files.is_some()
+        && (!cfg!(target_os = "linux") || options.host || options.desktop_peer || options.scan_only)
+    {
+        return Err("--receive-files currently requires a Linux phone client session (no --host, --desktop-peer or --scan-only)".into());
     }
     if options.stock_host && !options.host {
         return Err("--stock-host requires --host".into());
@@ -335,6 +350,8 @@ async fn send(
 struct Receiver {
     local: [u8; 8],
     assembler: Reassembler,
+    file_fragments: file_fragments::FileFragments,
+    incoming_files: Option<IncomingFiles>,
     peers: HashMap<[u8; 8], (String, VerifyingKey)>,
     seen: HashSet<[u8; 32]>,
     order: VecDeque<[u8; 32]>,
@@ -345,6 +362,8 @@ impl Receiver {
         Self {
             local,
             assembler: Reassembler::default(),
+            file_fragments: file_fragments::FileFragments::default(),
+            incoming_files: None,
             peers: HashMap::new(),
             seen: HashSet::new(),
             order: VecDeque::new(),
@@ -352,7 +371,25 @@ impl Receiver {
     }
 
     fn receive(&mut self, bytes: &[u8], output: &ui::Output) -> Result<()> {
-        // This narrow harness doesn't decode or negotiate Noise/sync/media traffic.
+        if self.incoming_files.is_some() && bytes.len() >= 2 {
+            if bytes[1] == 0x22 {
+                return self.receive_file(bytes, None, output);
+            }
+            if bytes[1] == FRAGMENT {
+                let fragment = Packet::decode(bytes)?;
+                if fragment.payload.get(12) == Some(&0x22) {
+                    if let Some(complete) = self.file_fragments.accept(&fragment)? {
+                        return self.receive_file(
+                            &complete,
+                            Some((fragment.sender, fragment.timestamp)),
+                            output,
+                        );
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        // Text-only without opt-in; other media/Noise/sync is ignored.
         if bytes.len() >= 2 && !matches!(bytes[1], ANNOUNCE | MESSAGE | LEAVE | FRAGMENT) {
             return Ok(());
         }
@@ -415,6 +452,52 @@ impl Receiver {
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    fn receive_file(
+        &mut self,
+        raw: &[u8],
+        fragment: Option<([u8; 8], u64)>,
+        output: &ui::Output,
+    ) -> Result<()> {
+        let outer = FileWire::parse(raw)?;
+        if fragment.is_some_and(|(sender, timestamp)| {
+            outer.sender != sender || outer.timestamp != timestamp
+        }) {
+            return Err("file fragments disagree with signed outer identity".into());
+        }
+        if outer.sender == self.local || now_ms().abs_diff(outer.timestamp) > 300_000 {
+            return Err("file sender or timestamp rejected".into());
+        }
+        let (name, key) = self
+            .peers
+            .get(&outer.sender)
+            .ok_or("file requires a previously verified peer announcement")?;
+        // A valid signature over the received bytes does not establish that
+        // Apple would produce identical compressed bytes when re-encoding.
+        let file = outer.decode_verified(key)?;
+        let digest: [u8; 32] = Sha256::digest(raw).into();
+        if self.seen.contains(&digest) {
+            return Ok(());
+        }
+        let (path, hash) = self
+            .incoming_files
+            .as_mut()
+            .ok_or("file receiving disabled")?
+            .save(&file)?;
+        self.seen.insert(digest);
+        self.order.push_back(digest);
+        if self.order.len() > 1024 {
+            self.seen.remove(&self.order.pop_front().unwrap());
+        }
+        output.line(&format!(
+            "{} sent {} bytes; saved quarantined .bin: {} (sha256 {})",
+            output.peer(name, &outer.sender),
+            file.content.len(),
+            display(&path.to_string_lossy()),
+            hex::encode(hash)
+        ))?;
         Ok(())
     }
 }
@@ -656,6 +739,10 @@ async fn chat(
         display(&options.name)
     );
     let mut receiver = Receiver::new(local);
+    if let Some(directory) = &options.receive_files {
+        receiver.incoming_files = Some(IncomingFiles::new(directory)?);
+        println!("Receive-only files enabled: small signed public files saved as .bin in {} (no auto-open; first radio test)", display(&directory.to_string_lossy()));
+    }
     let mut initial_announce = Packet::new(ANNOUNCE, local, now_ms(), announce_payload.clone());
     initial_announce.sign(&signing)?;
     let mut initial_sent = false;
@@ -1249,6 +1336,119 @@ mod tests {
         assert!(a.receive(&unsigned.encode().unwrap(), &output).is_err());
         assert_eq!(a.seen.len(), 1);
         assert_eq!(b.seen.len(), 1);
+    }
+
+    #[test]
+    fn file_receive_is_linux_phone_only_and_explicit() {
+        let parse = |args: &[&str]| parse_options(args.iter().map(|s| (*s).to_owned()));
+        let plain = parse(&["--write-limit", "128"]).unwrap().unwrap();
+        assert!(plain.receive_files.is_none());
+        assert!(parse(&["--write-limit", "128", "--receive-files", "/tmp", "--host"]).is_err());
+        assert!(parse(&[
+            "--write-limit",
+            "128",
+            "--receive-files",
+            "/tmp",
+            "--desktop-peer"
+        ])
+        .is_err());
+        assert!(parse(&["--scan-only", "--receive-files", "/tmp"]).is_err());
+        if cfg!(target_os = "linux") {
+            assert!(parse(&["--write-limit", "128", "--receive-files", "/tmp"])
+                .unwrap()
+                .unwrap()
+                .receive_files
+                .is_some());
+        }
+    }
+
+    #[test]
+    fn opt_in_phone_file_receiver_validates_then_saves_fragmented_file() {
+        use ed25519_dalek::Signer;
+        use std::fs;
+        let directory = std::env::temp_dir().join(format!(
+            "chatt3r-rx-test-{}",
+            hex::encode(rand::random::<[u8; 16]>())
+        ));
+        fs::create_dir(&directory).unwrap();
+        let output = ui::Output::plain(false);
+        let key = SigningKey::from_bytes(&[0x42; 32]);
+        let noise = [9; 32];
+        let sender = protocol::peer_id(&noise);
+        let mut rx = Receiver::new([8; 8]);
+        rx.incoming_files = Some(IncomingFiles::new(&directory).unwrap());
+        let mut announce = Packet::new(
+            ANNOUNCE,
+            sender,
+            now_ms(),
+            protocol::announcement("iphone", &noise, &key.verifying_key()).unwrap(),
+        );
+        announce.sign(&key).unwrap();
+        for frame in protocol::frames(&announce, 128).unwrap() {
+            rx.receive(&frame, &output).unwrap();
+        }
+        let vectors: serde_json::Value =
+            serde_json::from_str(include_str!("../../test-vectors/file-wire-v2.json")).unwrap();
+        let mut wire = hex::decode(vectors["cases"][1]["wire_hex"].as_str().unwrap()).unwrap();
+        wire[3..11].copy_from_slice(&now_ms().to_be_bytes());
+        wire[16..24].copy_from_slice(&sender);
+        let signature = key
+            .sign(&FileWire::parse(&wire).unwrap().signing_bytes())
+            .to_bytes();
+        let offset = wire.len() - 64;
+        wire[offset..].copy_from_slice(&signature);
+        let mut without_opt_in = Receiver::new([8; 8]);
+        without_opt_in.receive(&wire, &output).unwrap(); // existing text-only behavior
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        let mut unknown = Receiver::new([8; 8]);
+        unknown.incoming_files = Some(IncomingFiles::new(&directory).unwrap());
+        assert!(unknown.receive(&wire, &output).is_err()); // no verified announcement
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        let mut frames = Vec::new();
+        for (index, chunk) in wire.chunks(75).enumerate() {
+            let mut payload = vec![0x55; 8];
+            payload.extend((index as u16).to_be_bytes());
+            payload.extend((wire.len().div_ceil(75) as u16).to_be_bytes());
+            payload.push(0x22);
+            payload.extend(chunk);
+            frames.push(
+                Packet::new(
+                    FRAGMENT,
+                    sender,
+                    FileWire::parse(&wire).unwrap().timestamp,
+                    payload,
+                )
+                .encode()
+                .unwrap(),
+            );
+        }
+        assert!(frames.len() > 1);
+        // Last fragment first, then a duplicate: no file until the whole
+        // signed outer packet is available and verified.
+        rx.receive(frames.last().unwrap(), &output).unwrap();
+        rx.receive(frames.last().unwrap(), &output).unwrap();
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        for frame in &frames[..frames.len() - 1] {
+            rx.receive(frame, &output).unwrap();
+        }
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+        for frame in &frames {
+            rx.receive(frame, &output).unwrap();
+        }
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1); // dedup
+        let saved = fs::read_dir(&directory)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert_eq!(fs::read(&saved).unwrap(), vec![b'A'; 400]);
+        let mut tampered = wire;
+        tampered[offset] ^= 1;
+        assert!(rx.receive(&tampered, &output).is_err());
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+        fs::remove_file(saved).unwrap();
+        fs::remove_dir(directory).unwrap();
     }
 
     #[test]

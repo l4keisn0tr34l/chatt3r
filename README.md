@@ -5,7 +5,8 @@ cable, account, or server needed by the desktop client during chat.
 
 built on the bitchat ecosystem instead of starting a new protocol from scratch.
 the longer-term goal is an offline link for text **and files** across linux,
-windows, and iphone. right now, it's an early **public-text-only** client.
+windows, and iphone. right now, it's an early **public-text client** with
+opt-in, software-tested receive-only small public files on the Linux phone path.
 
 > public messages are not encrypted. use test text, not secrets.
 
@@ -18,7 +19,7 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait (closed-app wait observed, reopen transition pending) |
 | known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
 | longer text / compression | not supported yet; max 99 utf-8 bytes |
-| photos, voice notes, arbitrary files | not supported by chatt3r yet |
+| public file receive | opt-in small `--receive-files <existing-dir>` on Linux phone link; **software-tested, no iPhone file-radio result yet**. no sending, private files, or general media guarantee |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
 | linux ↔ windows pc text | **user-confirmed two-way signed public text over BLE** on the stock service with phone Bluetooth off **and** desktop-only service with phone Bluetooth on throughout; a simultaneous phone-on console transcript was not retained |
@@ -264,8 +265,11 @@ procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
    keep `--host --stock-host` for the old phone-off regression test if the
    desktop service cannot advertise here. see
    [docs/laptop-to-laptop.md](docs/laptop-to-laptop.md).
-3. **add files:** receive a small phone attachment, then verified arbitrary files.
-   an iphone fork may need macos/xcode if stock ui can't expose the needed flow.
+3. **test receive-only small files on hardware:** Linux `--receive-files` now
+   verifies signed public `0x22` packets, caps expansion and stores selected
+   MIME as randomly named `.bin` files; only software tests have passed.
+   try a small stock-iPhone image in the public room first. no file sending,
+   private files, arbitrary file picker, or delivery receipts are implemented.
 
 mesh, speed optimizations, and a gui come later. working direct transfers first.
 

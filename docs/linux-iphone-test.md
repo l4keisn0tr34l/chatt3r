@@ -77,14 +77,43 @@ to load a newly built binary. Ignored/malformed frame diagnostics require `--deb
 
 Messages are limited to **99 UTF-8 bytes**, not 99 characters. Public plaintext
 is signed but not confidential, not Noise-authenticated. Do not send secrets.
-No private messaging, file transfer, encryption sessions, auto-reconnection,
-mesh relaying, delivery ACKs, or gossip sync is implemented.
+The opt-in **small public file receiver** described below is software-tested
+but not yet tested against the iPhone. No file sending, private media,
+encryption sessions, auto-reconnection, delivery ACKs or gossip sync is implemented.
 
 `[drop]` errors are intentional diagnostics, not panics. A compressed/routed
 frame or oversized announcement needs follow-up support. A short nickname and
 isolated two-device test may avoid compressed announcements; this is a temporary
 baseline limitation, not a protocol rule. If a signed public message arrives
 before a valid announcement, wait for the next announce and resend the message.
+
+## pending first iPhone → Linux small-image check (opt-in)
+
+keep your working phone link and bond unchanged. the stock iPhone UI in the
+inspected source can **send a public image/voice note**, not necessarily an
+arbitrary document; choose a harmless **small image** (first assembled outer
+packet cap **16 KiB**, decoded file cap **64 KiB**). create a dedicated
+existing directory you own; nothing is stored unless you opt in:
+
+```bash
+mkdir -m 700 -p "$HOME/chatt3r-file-test"
+./scripts/chatt3r --name laptop --debug --receive-files "$HOME/chatt3r-file-test"
+```
+
+this laptop's local `CHATT3R_LE_PEER` setting makes the launcher choose its
+known phone with `--wait-for-peer` for this run; on another Linux setup use
+the already working stock scan/direct-LE mode. do not add `--desktop-peer`,
+`--host` or `--scan-only`. after a signed peer announcement, send the image
+in iPhone BitChat's public Bluetooth room. a successful receive should report
+`received-<random>.bin`, size and SHA-256; verify bytes/hash manually and
+record whether it arrived once. this saves **generic `.bin` without using the
+untrusted filename or auto-opening media**. only jpeg/png/gif/webp with
+matching magic bytes and `application/octet-stream` are allowed for the first
+test. the 128-byte write limit is not a measured MTU or a phone file size
+promise. `[drop]` diagnostics may mean an untested compression variant,
+fragment count/16 KiB cap, unrecognized MIME, missing announce or truncated
+transfer: record only sanitized error text, not raw media or peer IDs in git.
+no radio file result exists yet.
 
 ## Record evidence
 

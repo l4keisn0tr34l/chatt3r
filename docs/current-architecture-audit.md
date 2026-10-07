@@ -2,6 +2,12 @@
 
 snapshot: chatt3r `a47517359dfe2482f7c7c98a068077a9d1148394`. this is the **`--bin chatt3r` baseline**, not the preserved `src/main.rs` legacy `bitchat` binary. no BLE radio was run for this audit. `CODEX_GUIDE.md` does not exist under that spelling; the owner's untracked `codexguide.md` was read as *historical context only* and not changed. the user initially reported that the new desktop-service path **worked** with iPhone Bluetooth **on throughout**. **later clarification:** they explicitly confirmed they exchanged text **both ways** in that phone-on run. the phone-off stock-service run has a recorded message-by-message account; no simultaneous phone-on console transcript was retained. neither run proves multi-peer selection, and Wi-Fi/cellular switch states were not recorded.
 
+later implementation note (not part of this pinned read-only snapshot):
+`--receive-files <existing-dir>` now offers software-tested small public file
+receive on Linux phone links only. the original text-only table below is
+historical; see [file-transfer-audit.md](file-transfer-audit.md) for the new
+file-only path and its untested iPhone radio status.
+
 ## boundaries and provenance
 
 | subsystem | actual code and status | origin / evidence |

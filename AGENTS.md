@@ -13,7 +13,10 @@ what has shipped. prefer observed results and current code over old roadmaps.
   over the desktop-only service with iphone Bluetooth on throughout. no
   simultaneous phone-on console transcript was retained. Windows
   `--host --stock-host` preserves the proven phone-off service path.
-- keep backend-specific BLE code separate from the shared signed packet/chat
+- opt-in `--receive-files <existing-dir>` on a Linux phone link now has a
+  **software-tested, not yet iphone-radio-tested** small public file receiver;
+  no file sending, private files, general media compatibility, or receipts.
+  keep backend-specific BLE code separate from the shared signed packet/chat
   layer. do not replay a possibly delivered user message on reconnect. BLE
   write success is not a delivery receipt.
 - never reset adapters, remove bonds, or alter the user's local known-phone

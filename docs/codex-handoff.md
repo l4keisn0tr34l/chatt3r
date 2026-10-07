@@ -13,8 +13,9 @@ and [laptop-to-laptop.md](laptop-to-laptop.md) before updating claims.
 build an infrastructure-free cross-platform link for nearby **text and files**.
 BitChat supplies the protocol/compatibility reference, not an invention we
 claim as ours. [context.md](../context.md) describes the long-term goal, not
-what is shipped. no files, private messages, delivery receipts or full
-live-session reconnect are implemented.
+what is shipped. **small public file receive is opt-in and software-tested,
+not iPhone-radio-tested**. no file sending, private messages, delivery receipts
+or full live-session reconnect are implemented.
 
 | path | evidence |
 | --- | --- |
@@ -64,13 +65,15 @@ linux laptop (btleplug fresh scan + connect + subscribe)
 - `desktop/bitchat-terminal/src/baseline/file_packet.rs` and `src/lib.rs`:
   a **pure, bounded canonical-v2-layout file TLV codec** with independent
   layout fixture (strict reader; no legacy-length or multi-content support),
-  currently unit-tested only; `--bin chatt3r` does not import it, accept
-  file frames, send media or save files. `baseline/file_wire.rs` is a pure
-  signed-v2 `0x22` **wire-preimage** checker with Python-generated raw-DEFLATE
-  and uncompressed fixtures; it does not inflate or validate compressed
-  content. Apple's canonical recompression has **not** been cross-checked.
-  bounded expansion, cross-language fixtures and larger per-type fragment
-  bounds are still missing.
+  also used by opt-in `--bin chatt3r` receive. `baseline/file_wire.rs`
+  parses signed-v2 `0x22`, checks the announced peer's key, then bounds
+  raw-DEFLATE expansion and TLV decoding. `baseline/file_fragments.rs` holds
+  at most eight 16 KiB first-test `0x20` file assemblies for 30s;
+  `baseline/file_store.rs` writes an explicit existing directory using a
+  random `.bin` name, MIME/magic checks and a 16-file-per-run quota. no
+  filename from the wire becomes a path. **software-tested only**; no file
+  radio, Swift compression byte identity or actual stock-app media test yet.
+  no file sending, private media or delivery ACKs.
 - [upstream-analysis.md](upstream-analysis.md) records source attribution;
   [direct-le.md](direct-le.md) records phone-path design/evidence;
   [windows.md](windows.md) has native PowerShell run commands;
@@ -130,10 +133,12 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 3. test Windows `/quit`/Ctrl-C and Linux teardown, out-of-range behavior and
    restart explicitly. the client does not reconnect an established session
    or provide application delivery ACKs.
-4. Linux ↔ Linux still needs a capable advertising adapter and a Linux GATT
-   server. generic file receiving/sending comes after a stable phone-free
-   transport. do not claim files are usable just because upstream wire
-   formats can represent binary data.
+4. **first iPhone → Linux file radio test:** on Linux, enable receive-only
+   `--receive-files <existing-dir>` on the working stock phone/direct-LE link;
+   send a small public image from stock BitChat. confirm one `.bin` saved,
+   compare bytes/hash, note any `[drop]` error, and do not commit file contents
+   or raw logs. this is **pending**. Linux ↔ Linux still needs a capable
+   advertising adapter and a Linux GATT server; sending files is not shipped.
 
 ## local checks and safety
 
