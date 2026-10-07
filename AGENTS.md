@@ -19,9 +19,15 @@ what has shipped. prefer observed results and current code over old roadmaps.
   notifications were rejected as truncated or unsupported. the repeat
   recorded stock file fragments of **504 declared vs 182 received bytes**
   (`0x20`, original `0x22`). only opt-in Linux direct-LE file mode now requests
-  ATT MTU 517; default text stays at 185. this is compile/unit-tested, not a
-  working file-radio result. no file sending,
-  private files, general media compatibility, or receipts.
+  ATT MTU 517; the user then confirmed negotiated **517 / value 514**, with
+  complete 504-byte file fragments on radio. 46 parts exceeded the old
+  16 KiB file assembly budget; two other `0x20` frames had compression flag
+  `0x04` (their original types were not captured). the opt-in file-only path
+  now uses the bounded signed-v2 outer cap (~65 KiB) and can decode bounded
+  raw-DEFLATE fragment frames before full outer-signature validation; this
+  change is **software-tested, not yet repeated on radio**. default text
+  stays at 185. no saved iPhone image yet; no file sending, private files,
+  general media compatibility, or receipts.
   keep backend-specific BLE code separate from the shared signed packet/chat
   layer. do not replay a possibly delivered user message on reconnect. BLE
   write success is not a delivery receipt.

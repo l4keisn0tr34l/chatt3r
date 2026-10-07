@@ -376,8 +376,7 @@ impl Receiver {
                 return self.receive_file(bytes, None, output);
             }
             if bytes[1] == FRAGMENT {
-                let fragment = Packet::decode(bytes)?;
-                if fragment.payload.get(12) == Some(&0x22) {
+                if let Some(fragment) = file_fragments::decode_file_candidate(bytes)? {
                     if let Some(complete) = self.file_fragments.accept(&fragment)? {
                         return self.receive_file(
                             &complete,
@@ -1489,6 +1488,74 @@ mod tests {
         tampered[offset] ^= 1;
         assert!(rx.receive(&tampered, &output).is_err());
         assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+        fs::remove_file(saved).unwrap();
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn signed_file_over_old_sixteen_kib_limit_is_saved_after_full_assembly() {
+        use ed25519_dalek::Signer;
+        use std::fs;
+        let directory = std::env::temp_dir().join(format!(
+            "chatt3r-large-rx-test-{}",
+            hex::encode(rand::random::<[u8; 16]>())
+        ));
+        fs::create_dir(&directory).unwrap();
+        let key = SigningKey::from_bytes(&[0x42; 32]);
+        let noise = [9; 32];
+        let sender = protocol::peer_id(&noise);
+        let timestamp = now_ms();
+        let mut receiver = Receiver::new([8; 8]);
+        receiver.incoming_files = Some(IncomingFiles::new(&directory).unwrap());
+        let output = ui::Output::plain(false);
+        let mut announce = Packet::new(
+            ANNOUNCE,
+            sender,
+            timestamp,
+            protocol::announcement("iphone", &noise, &key.verifying_key()).unwrap(),
+        );
+        announce.sign(&key).unwrap();
+        for frame in protocol::frames(&announce, 128).unwrap() {
+            receiver.receive(&frame, &output).unwrap();
+        }
+        let content = vec![0x47; 21_500];
+        let tlv = bitchat_poc::file_packet::FilePayload {
+            file_name: Some("../../not-a-path".into()),
+            mime_type: Some("application/octet-stream".into()),
+            content: content.clone(),
+        }
+        .encode()
+        .unwrap();
+        let mut wire = vec![2, 0x22, 7];
+        wire.extend(timestamp.to_be_bytes());
+        wire.push(2); // signed, public, no compression on the synthetic outer frame
+        wire.extend((tlv.len() as u32).to_be_bytes());
+        wire.extend(sender);
+        wire.extend(tlv);
+        wire.extend([0; 64]);
+        let signature = key
+            .sign(&FileWire::parse(&wire).unwrap().signing_bytes())
+            .to_bytes();
+        let signature_start = wire.len() - 64;
+        wire[signature_start..].copy_from_slice(&signature);
+        assert!(wire.len() > 16 * 1024);
+        let chunks: Vec<_> = wire.chunks(469).collect();
+        assert_eq!(chunks.len(), 47); // stock-sized chunks, includes TLV and signed v2 overhead
+        for (index, chunk) in chunks.iter().enumerate() {
+            let mut payload = vec![0x33; 8];
+            payload.extend((index as u16).to_be_bytes());
+            payload.extend((chunks.len() as u16).to_be_bytes());
+            payload.push(0x22);
+            payload.extend_from_slice(chunk);
+            let fragment = Packet::new(FRAGMENT, sender, timestamp, payload)
+                .encode()
+                .unwrap();
+            receiver.receive(&fragment, &output).unwrap();
+        }
+        let mut entries = fs::read_dir(&directory).unwrap();
+        let saved = entries.next().unwrap().unwrap().path();
+        assert!(entries.next().is_none());
+        assert_eq!(fs::read(&saved).unwrap(), content);
         fs::remove_file(saved).unwrap();
         fs::remove_dir(directory).unwrap();
     }

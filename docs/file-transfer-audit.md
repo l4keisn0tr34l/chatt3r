@@ -69,7 +69,8 @@ opts into a bounded public `0x22` path. file bytes arrive via the existing
 btleplug notification or `baseline/linux_att.rs` direct-LE reader →
 `chatt3r.rs:Receiver::receive`. the dedicated `baseline/file_fragments.rs`
 collects only file-marked `0x20` chunks (max eight concurrent, 256 chunks,
-16 KiB **encoded outer frame**, 30s expiry), leaving the proven text
+~65 KiB **encoded outer frame** after the first hardware sizing failure,
+30s expiry), leaving the proven text
 `protocol.rs:Reassembler` unchanged. `file_wire.rs:FileWire` rejects wrong
 flags/lengths, binds the outer sender/timestamp to the fragment metadata,
 requires a recently verified peer announcement and checks the Ed25519
@@ -123,13 +124,31 @@ MTU reply advertises the same size. the peer's response is range-checked and
 negotiated by minimum. `chatt3r.rs` refuses this opt-in session when its
 value limit is below the observed **504** bytes (ATT MTU <507); the proven
 text default remains 185. tests establish the policy and software packet
-path, **not that this adapter/iPhone negotiates 507+ or transfers an image**.
-first test connection only and report negotiated value limit. if below 504,
-file send is blocked before trying an image; a sender-side chunk limit or
-another compatible link would be needed. if high enough, separately test
-receipt, signature, file limits and byte/hash on radio. do not alter bonds,
-guess `--write-limit` (outbound only), accept truncated bytes as a file, or
-report a working transfer yet.
+path; this was **not yet an image-transfer result**. a subsequent user test
+confirmed this same link negotiated **ATT MTU 517/value 514**. it received
+complete 504-byte `0x22`-marked fragments, but a 46-part stream hit the old
+16 KiB file-assembly cap around part 36. two other `0x20` frames carried
+compression flag `0x04` and complete 458/439-byte framing; their expanded
+original types were **not** captured, so do not assume they belong to the
+file. the phone's short public text still worked; no saved file was reported.
+
+this establishes one **receiver-side** size limit after successful MTU
+negotiation, plus an unsupported compression flag whose relationship to the
+file has not been established:
+`file_fragments.rs` now uses the already-bounded `FileWire` maximum for a
+signed outer file (<= ~65 KiB), still 256 parts/8 simultaneous/30s; an image
+larger than that remains unsupported. `file_wire.rs:inflate_fragment_payload`
+allows <=1024 bytes of exact raw-DEFLATE *fragment* expansion with ratio,
+stream-end and full-input checks. `file_fragments.rs:decode_file_candidate`
+requires an unaddressed v1/v2 `0x20` frame with only compressed flag `0x04`,
+checks lengths, inflates, then checks the **expanded** 13-byte prefix for
+original `0x22`; non-file frames still follow the existing text path (and may
+be rejected). file fragments remain unsigned until the **complete** outer
+v2 file is bound to a validated announcement and signature-checked before
+safe storage. synthetic 46/47-part and compressed-fragment tests pass; none
+of this new parsing has been tested on the phone radio. do not alter bonds,
+guess `--write-limit` (outbound only), accept incomplete files or report a
+working transfer yet.
 
 ## answer to the proposed protocol
 

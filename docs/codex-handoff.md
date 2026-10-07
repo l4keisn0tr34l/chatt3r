@@ -1,5 +1,8 @@
 # codex handoff: chatt3r
 
+for a copy-paste codex-cli prompt and the next physical file checkpoint, see
+[codex-cli-handoff.md](codex-cli-handoff.md).
+
 current snapshot: **user-confirmed two-way public text over BLE between the
 Linux laptop and Windows PC**, first on the stock service with iphone Bluetooth
 off and later on the desktop-only service with iphone Bluetooth **on throughout**.
@@ -14,7 +17,8 @@ build an infrastructure-free cross-platform link for nearby **text and files**.
 BitChat supplies the protocol/compatibility reference, not an invention we
 claim as ours. [context.md](../context.md) describes the long-term goal, not
 what is shipped. **small public file receive is opt-in and software-tested;
-first iPhone image log shows no saved file**. no file sending,
+iPhone image attempts have no saved file reported**. ATT MTU 517/value 514
+was confirmed on radio; full file receipt remains unconfirmed. no file sending,
 private messages, delivery receipts
 or full live-session reconnect are implemented.
 
@@ -68,14 +72,18 @@ linux laptop (btleplug fresh scan + connect + subscribe)
   layout fixture (strict reader; no legacy-length or multi-content support),
   also used by opt-in `--bin chatt3r` receive. `baseline/file_wire.rs`
   parses signed-v2 `0x22`, checks the announced peer's key, then bounds
-  raw-DEFLATE expansion and TLV decoding. `baseline/file_fragments.rs` holds
-  at most eight 16 KiB first-test `0x20` file assemblies for 30s;
-  `baseline/file_store.rs` writes an explicit existing directory using a
-  random `.bin` name, MIME/magic checks and a 16-file-per-run quota. no
-  filename from the wire becomes a path. **software tests pass, first image
-  radio attempt reported no saved file**; Swift compression byte identity and
-  actual stock-app media compatibility remain unproven. no file sending,
-  private media or delivery ACKs.
+  raw-DEFLATE expansion and TLV decoding. `baseline/file_fragments.rs` now
+  holds at most eight ~65 KiB signed-file-bound `0x20` assemblies for 30s,
+  and decodes strictly bounded raw-DEFLATE v1 `0x20` frames **only when their
+  expanded fragment prefix marks public file `0x22`**. non-file and the
+  working text reassembler remain separate. `baseline/file_store.rs` writes
+  to an explicit existing directory using a random `.bin` name, MIME/magic
+  checks and a 16-file-per-run quota. no
+  filename from the wire becomes a path. **software tests pass, radio now
+  confirms MTU 517 and complete 504-byte file fragments but still no saved
+  image**; larger assembly/compressed-fragment changes need radio testing.
+  Swift compression byte identity and stock media compatibility remain
+  unproven. no file sending, private media or delivery ACKs.
 - [upstream-analysis.md](upstream-analysis.md) records source attribution;
   [direct-le.md](direct-le.md) records phone-path design/evidence;
   [windows.md](windows.md) has native PowerShell run commands;
@@ -135,27 +143,28 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 3. test Windows `/quit`/Ctrl-C and Linux teardown, out-of-range behavior and
    restart explicitly. the client does not reconnect an established session
    or provide application delivery ACKs.
-4. **test the opt-in ATT size fix before another image:** the second iPhone
-   image attempt produced actual `0x20` fragments marked original `0x22`,
-   `fragment=2..5/46`, version 1 flags 0, **declared total 504 bytes but only
-   182 value bytes arrived**; `Packet::decode` correctly rejected them. earlier
-   182-byte fragments with flag `0x04` were separately unsupported. there
-   was **no saved file reported**. 182 equals the direct-LE value limit from
-   the previous 185 ATT MTU request. the pinned Swift planner uses 469-byte
-   default chunks (22-byte frame header + 13-byte fragment envelope = 504),
-   consistent with this result; do not invent missing bytes or alter outbound
-   `--write-limit`. `linux_att.rs:DirectAtt::connect` now requests MTU 517
-   **only when `--receive-files` is opted in on direct LE**, and answers any
-   incoming exchange with the same value; default text stays at 185. after
-   peer response, `main` checks actual value limit >=504 and refuses this
-   opt-in session if not; plain text without the flag still works. this is
-   **unit/type-tested, not radio-verified**. first connect with the file flag
-   and record only negotiated ATT MTU/value limit. only if >=507/504, consider
-   one small image and verify signed saved bytes. if the peer caps at 185,
-   the stock sender must adapt its chunking or use another compatible link;
-   we cannot reconstruct truncated notifications. don't reset bonds/adapters,
-   share addresses/media, or claim file delivery from a GATT write. Linux ↔
-   Linux still needs a capable advertising adapter and a Linux GATT server.
+4. **radio-retest the bounded file path with a small public image:** the
+   earlier image run showed `0x22`-marked `0x20` parts 2..5/46 declared 504
+   but arriving as 182 (negotiated MTU 185). the user then **confirmed real
+   ATT MTU 517/value limit 514**, signed iPhone text (`yo`), full 504-byte
+   file fragments, two valid-sized v1 `0x20` frames with compression flag
+   `0x04` (original type unknown), and failure at `file frame exceeds
+   first-radio budget` around fragment 36/46. no saved image was reported.
+   stock Swift `TransportConfig.bleDefaultFragmentSize=469` explains the
+   504-byte fragment layout, not general delivery. `file_fragments.rs` now
+   uses `file_wire.rs`'s existing bounded outer-frame ceiling (~65 KiB)
+   instead of 16 KiB, and only decompresses v1 `0x20` in file-opted mode
+   with exact stream length/end/ratio and <=1024-byte expanded prefix, then
+   checks for original `0x22`. the full v2 packet still requires peer-key
+   signature, size, MIME and safe file-store validation. the new collector
+   and compressed-fragment path are **software-tested only** after the failed
+   image attempt. rebuild before a physical
+   retry, share only sanitized error/size/fragment metadata and whether a
+   `.bin` was saved, never raw bytes/IDs or the device address the user
+   included in their local transcript. if an image remains too large after
+   reassembly, keep the bounds and report a clear rejection; don't raise
+   limits or replay messages blindly. text default stays 185; no bonds or
+   adapters were changed. Linux ↔ Linux still needs a capable advertiser.
 
 ## local checks and safety
 

@@ -71,10 +71,15 @@ the user confirmed `android` is their iphone's chosen BitChat nickname. no
 message is replayed after disconnect. text-only direct LE still requests
 ATT MTU 185. for the **opt-in** `--receive-files` experiment only, a separate
 MTU 517 request was added after a stock iPhone image produced file fragments
-with 504 bytes declared but only 182 received. that larger negotiation and
-file receive have **not** been tested on radio; if the negotiated value limit
-stays below 504, the file-mode connection refuses the test rather than
-accepting incomplete fragments. no bond or adapter changes are required.
+with 504 bytes declared but only 182 received. a later physical test
+confirmed **MTU 517/value limit 514**, full 504-byte file fragments and
+short public text. it did **not** save the image: 46 file fragments exceeded
+the former 16 KiB collector cap. the bounded file-only collector now permits
+~65 KiB outer packets and conditional raw-DEFLATE fragment parsing; neither
+change has yet been retested on the phone. text-only default remains 185.
+if an ATT value limit below 504 is negotiated, file mode refuses the test
+rather than accepting incomplete fragments. no bond or adapter changes are
+required.
 
 **evidence and next checkpoint:** offline unit tests and clippy pass; launcher
 and pty smoke tests pass. a physical direct le probe negotiated mtu 185,

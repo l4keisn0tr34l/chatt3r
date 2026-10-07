@@ -10,7 +10,8 @@ use super::file_packet::{FilePayload, MAX_FILE_BYTES};
 
 const MAX_TLV_BYTES: usize = MAX_FILE_BYTES + 1024;
 const HEADER: usize = 24; // v2 header (16) + sender (8); broadcast has no recipient
-const MAX_WIRE_BYTES: usize = HEADER + MAX_TLV_BYTES + 64;
+pub const MAX_FILE_WIRE_BYTES: usize = HEADER + MAX_TLV_BYTES + 64;
+const MAX_FRAGMENT_PAYLOAD_BYTES: usize = 1024; // v1 0x20, including 13-byte fragment prefix
 
 /// A parsed, still-untrusted frame. The caller must obtain the sender's key
 /// from a separately verified announcement and call `verify_wire_signature`.
@@ -26,7 +27,7 @@ pub struct FileWire<'a> {
 
 impl<'a> FileWire<'a> {
     pub fn parse(bytes: &'a [u8]) -> Result<Self, &'static str> {
-        if bytes.len() < HEADER + 64 || bytes.len() > MAX_WIRE_BYTES {
+        if bytes.len() < HEADER + 64 || bytes.len() > MAX_FILE_WIRE_BYTES {
             return Err("invalid file frame length");
         }
         // Only signed v2 public file broadcasts. Reject recipient, route,
@@ -129,6 +130,21 @@ impl<'a> FileWire<'a> {
             }
         }
     }
+}
+
+/// Only for a signed-file candidate's *unsigned* 0x20 frame. Never use the
+/// inflated fragment as a file: the complete original v2 packet still needs
+/// announcement-key binding and Ed25519 verification before persistence.
+pub fn inflate_fragment_payload(
+    compressed: &[u8],
+    expected: usize,
+) -> Result<Vec<u8>, &'static str> {
+    if !(14..=MAX_FRAGMENT_PAYLOAD_BYTES).contains(&expected)
+        || expected > compressed.len().saturating_mul(1032)
+    {
+        return Err("compressed fragment exceeds file-receive bounds");
+    }
+    inflate_exact(compressed, expected)
 }
 
 fn inflate_exact(compressed: &[u8], expected: usize) -> Result<Vec<u8>, &'static str> {

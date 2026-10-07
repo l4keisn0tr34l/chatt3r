@@ -88,13 +88,14 @@ isolated two-device test may avoid compressed announcements; this is a temporary
 baseline limitation, not a protocol rule. If a signed public message arrives
 before a valid announcement, wait for the next announce and resend the message.
 
-## check the ATT size fix before retrying an image (opt-in)
+## retry the first receive-only public image (opt-in; still unproven)
 
 keep your working phone link and bond unchanged. the stock iPhone UI in the
 inspected source can **send a public image/voice note**, not necessarily an
-arbitrary document. first, **connect only; do not send another image yet**.
-create a dedicated existing directory you own; nothing is stored unless you
-opt in:
+arbitrary document. create a dedicated existing directory you own; nothing
+is stored unless you opt in. use a harmless small public image: the decoded
+file cap remains **64 KiB**, encoded signed outer frame about **65 KiB**, and
+only 16 saves are allowed per run. larger images are not supported.
 
 ```bash
 mkdir -m 700 -p "$HOME/chatt3r-file-test"
@@ -114,24 +115,28 @@ opt-in direct LE now asks for **ATT MTU 517** instead of the proven text
 default **185**. note the `[ble] negotiated ATT MTU=… (value limit=…)` line.
 if the negotiated value limit is **below 504**, file mode stops with a clear
 error and the image cannot fit on this link; rerun without `--receive-files`
-for the previously working public text. do **not** resend the image. if the
-limit is **at least 504**, that establishes link capacity only, not a file
-transfer. a later small public-image test (encoded outer frame <=16 KiB,
-decoded file <=64 KiB) still needs one observed result: a successful receive
-would report `received-<random>.bin`, size and SHA-256; verify bytes/hash
-manually and record whether it arrived once. this saves **generic `.bin` without using the
-untrusted filename or auto-opening media**. only jpeg/png/gif/webp with
+for the previously working public text. the user already confirmed MTU **517**
+and receipt of full 504-byte file fragments. that run still failed on a
+46-part image at the old 16 KiB assembly cap; two complete `0x20` frames
+had compression flag `0x04` (not proven to be file frames). after rebuilding,
+the file-only path allows bounded ~65 KiB assembly and bounded compressed
+fragment decoding. if the iPhone resends a small image in its **public**
+Bluetooth room after a signed announcement, a successful receive would
+report `received-<random>.bin`, size and SHA-256; verify bytes/hash manually
+and record whether it arrived once. this change is **software-tested only**.
+files are saved as **generic `.bin` without using the untrusted filename or
+auto-opening media**. only jpeg/png/gif/webp with
 matching magic bytes and `application/octet-stream` are allowed for the first
 test. the 128-byte write limit is not a measured MTU or a phone file size
-promise. the second image attempt recorded version-1 `0x20` fragments of
-original type `0x22`: **504 declared bytes, 182 received bytes**, with no
-saved image reported. this is not a successful file test. for this connection
-check, report only negotiated ATT MTU/value limit and whether public text
-still works, not file bytes, device address or raw packet dump. changing
-`--write-limit` won't restore missing incoming bytes (that flag controls
-outbound writes); don't reset Bluetooth or remove bonds. once link size is
-established, other possible drops remain MIME, signature, fragment count/
-16 KiB cap or unsupported packet type.
+promise. earlier runs recorded 504-byte file fragments arriving first as
+182 bytes, then fully at value limit 514 but rejected after ~36/46 parts.
+there is still **no confirmed saved image**. report just the negotiated MTU,
+a few sanitized `[rx-shape]`/`[drop]` lines if any, and whether one `.bin`
+was saved with matching contents; do not post device addresses, peer IDs,
+raw media or a full debug transcript. changing `--write-limit` does not
+change incoming frame size; don't reset Bluetooth or remove bonds. other
+possible drops remain MIME, signature, 64 KiB content cap, ~65 KiB outer
+frame, sender admission or unsupported private media.
 
 ## Record evidence
 
