@@ -1,0 +1,10 @@
+{
+  "description": "canonical v2 file TLV payload only; no outer packet, signature, compression or BLE frames",
+  "generator": "independent Python standard-library integer big-endian layout following the pinned Swift source",
+  "outer_version": 2,
+  "outer_type": 34,
+  "file_name": "note.txt",
+  "mime_type": "application/octet-stream",
+  "content_hex": "68656c6c6f2066726f6d206e65617262790a",
+  "payload_hex": "0100086e6f74652e747874020004000000120300186170706c69636174696f6e2f6f637465742d73747265616d040000001268656c6c6f2066726f6d206e65617262790a"
+}

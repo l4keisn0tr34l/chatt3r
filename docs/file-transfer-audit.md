@@ -1,6 +1,6 @@
 # file transfer audit — no new wire protocol yet
 
-source pins and legal restrictions: [upstream reuse audit](upstream-reuse-audit.md). this is source analysis, **not** a successful chatt3r file-radio test. current `chatt3r.rs:Receiver::receive` explicitly ignores `0x22`; `baseline/protocol.rs:Reassembler::accept` rejects file fragments; 16 KiB packet cap and unsigned/compressed handling make naive file support impossible. the Python CLI is GPL-3.0 reference, not drop-in reusable code.
+source pins and legal restrictions: [upstream reuse audit](upstream-reuse-audit.md). this is source analysis, **not** a successful chatt3r file-radio test. current `chatt3r.rs:Receiver::receive` explicitly ignores `0x22`; `baseline/protocol.rs:Reassembler::accept` rejects file fragments; 16 KiB packet cap and unsigned/compressed handling make naive file support impossible. a later first implementation step added `baseline/file_packet.rs`, a **pure, bounded canonical-v2-layout TLV codec**, exposed from `src/lib.rs` and unit-tested with `test-vectors/file-payload-v2.json`. its reader deliberately rejects legacy lengths and multiple content TLVs that upstream can tolerate. it is **not wired into** `chatt3r` and has no v2 signed/compressed outer packet or disk I/O. the Python CLI is GPL-3.0 reference, not drop-in reusable code.
 
 ## existing BitChat public file envelope
 
@@ -22,6 +22,21 @@ A second desktop *reference* path exists in GPL Python: `bitchat_cli/ble_service
 - Progress: sender `BLEOutbound*` / Android `FragmentingPacketSender.kt` report queued/sent fragment counts via `TransferProgressManager`. That is **not remote saved-file confirmation**. Timeouts, bounded assembly expiry, cancellation and failure paths exist. Swift `BLEFragmentAssemblyBuffer.stalledBroadcastFragmentIDs` plus gossip `REQUEST_SYNC` can request missing **broadcast** fragment streams; this is opportunistic mesh recovery, not a universal per-chunk ACK or guaranteed file transfer. Directed fragments are excluded from that sync.
 - **Private** media has a different, more sophisticated receipt story: Swift `BLEFileTransferHandler` saves before issuing stable-media ACK, uses durable `BLEPrivateMediaReceiptStore` and deduplicates accepted IDs; `ChatMediaTransferCoordinator.swift:~1256-1467` retains limited payloads for post-reconnect whole-file retry *only under a receipt/capability policy*. It is not generic resumable byte-offset transfer or proof of public-file end-to-end ACK. `BitchatFilePacket.swift:PrivateMediaMessageIdentity` derives a stable receipt ID only for eligible entropy-bearing iOS-generated image/voice filenames; Android/old iOS names may be ineligible. Never replay an ambiguous public write in chatt3r merely because these private-media features exist.
 - Public receive has MIME allow-list/magic check and storage quota (`BLEFileTransferPolicy.swift`, `BLEIncomingFileStore.swift`), but generic octet-stream accepts bytes and filename must still be sanitized. Python auto-open and basename handling are not adequate security requirements. Current iOS composer `Views/ContentComposerView.swift` and `ViewModels/ChatMediaPreparation.swift` expose image and voice sending, **no generic import picker found** in pinned source; iOS receiving generic PDF/octet-stream is supported by `MimeType.swift`, not proof that stock installed iPhone can *send* arbitrary files. Android has a generic picker.
+
+## first implementation checkpoint (software only)
+
+independent synthetic v2 TLV fixture → `src/lib.rs: file_packet` →
+`baseline/file_packet.rs:FilePayload::decode` checks strict tag/length,
+UTF-8, size agreement, duplicate tags and a 64 KiB **parser** budget →
+`FilePayload::encode` reproduces the fixture. tests include truncation,
+unknown optional tags, oversized and random bytes. the wire layout and
+`0x22` designation come from the pinned **Unlicensed Swift** source; the
+Rust safety bounds and strict decoder are chatt3r-specific. no GPL source
+was copied. **there is no BLE file path or disk output**; 64 KiB is not a
+verified interoperable radio size (at the configured 128-byte frame cap,
+Android's 256-fragment ceiling may be reached much earlier). unsigned outer
+packet, compression, signatures, and per-type fragment recovery still need
+cross-language fixtures before the binary should accept a file.
 
 ## answer to the proposed protocol
 

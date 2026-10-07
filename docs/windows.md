@@ -8,9 +8,9 @@ when the phone was nearby with Bluetooth on, the Windows host reported **two
 subscribers** and refused the inbound write. the host now advertises a
 **desktop-only service UUID** and Linux opts into it with `--desktop-peer`, so
 stock BitChat's filtered service scan should not connect to that host. this
-new discovery route is compiled, **not yet hardware-tested with the phone
-on**. `--host --stock-host` preserves the original service as an explicit
-fallback for the proven phone-off test. phone-off was a test isolation step,
+user later reported the new service **worked with phone Bluetooth on
+throughout**; direction-specific logs were not captured.
+`--host --stock-host` preserves the original service as an explicit fallback for the proven phone-off test. phone-off was a test isolation step,
 not an intended requirement. no private messages, files, delivery receipts or
 live-session reconnect. windows → iphone text also worked on a different pc;
 iphone → windows has not been separately confirmed.
@@ -216,8 +216,9 @@ message replay is implemented.
 windows `--host` uses native Windows GATT, while Linux scans as a central;
 both roles feed the shared signed packet/chat code. two-way public text is
 user-confirmed on real BLE hardware **using the earlier stock service with
-phone Bluetooth off**. the desktop-only service still needs a hardware test
-with the phone on. the one-subscriber host still fails closed if another
+phone Bluetooth off**. the desktop-only service later **worked according to
+the user with phone Bluetooth on throughout**; the directions were not
+separately recorded. the one-subscriber host still fails closed if another
 central subscribes. Linux-only advertising is still blocked on this laptop's
 Realtek controller. see [laptop-to-laptop.md](laptop-to-laptop.md) for evidence
 and next steps.

@@ -2,8 +2,10 @@
 
 current snapshot: **user-confirmed two-way public text over BLE between the
 Linux laptop and Windows PC, with iphone Bluetooth off.** this is one physical
-session. the new desktop-only service UUID is compiled, **not radio-tested**
-with the phone on; this is not a finished multi-device link. check the
+session. the user later reported that the new desktop-only service **worked
+on hardware with iphone Bluetooth on throughout**, but did not separately
+confirm directions or provide simultaneous logs for that run. this is not a
+finished multi-device link. check the
 working tree, current code and [laptop-to-laptop.md](laptop-to-laptop.md)
 before updating claims.
 
@@ -19,7 +21,7 @@ live-session reconnect are implemented.
 | --- | --- |
 | stock iphone ↔ linux | bidirectional public text user-confirmed on physical BLE; includes an iphone-offline Linux direct-LE run |
 | windows → iphone | user-confirmed native Windows BLE client text; iphone → windows not separately confirmed |
-| linux ↔ windows pc | **user-confirmed two-way public text over BLE with iphone Bluetooth off.** Linux received signed `windows-pc` announcement and text `yo`, `ok got it`; Linux sent `hi`, `yoooooooo`. Windows-side transcript and Wi-Fi/cellular switch states weren't recorded |
+| linux ↔ windows pc | **user-confirmed two-way public text over BLE with iphone Bluetooth off** using the stock service. Linux received signed `windows-pc` announcement and text `yo`, `ok got it`; Linux sent `hi`, `yoooooooo`. user later reported desktop-only service worked with phone Bluetooth **on throughout**, but directions and Wi-Fi/cellular switch states weren't separately recorded |
 | linux ↔ linux | not working; this laptop's Realtek adapter rejected a temporary BlueZ advertisement (`Invalid Parameters (0x0d)`) |
 | software-only simulated peers | signed two-way text, fragmented frames, duplicate/rejection tests; **not** radio evidence |
 
@@ -60,6 +62,12 @@ linux laptop (btleplug fresh scan + connect + subscribe)
   separate Linux-only raw-ATT workaround for the known iphone; **don't
   regress** it to change the Windows host. `baseline/discovery.rs` rejects
   BlueZ cached UUIDs until there is fresh scan evidence.
+- `desktop/bitchat-terminal/src/baseline/file_packet.rs` and `src/lib.rs`:
+  a **pure, bounded canonical-v2-layout file TLV codec** with independent
+  layout fixture (strict reader; no legacy-length or multi-content support),
+  currently unit-tested only; `--bin chatt3r` does not import it, accept
+  file frames, send media or save files. long-packet canonical compression,
+  signatures and larger per-type fragment bounds are still missing.
 - [upstream-analysis.md](upstream-analysis.md) records source attribution;
   [direct-le.md](direct-le.md) records phone-path design/evidence;
   [windows.md](windows.md) has native PowerShell run commands;
@@ -81,8 +89,10 @@ devices. don't unpair/reset devices to hide this issue. a new **desktop-only
 service UUID** is now used by Windows `--host`; stock BitChat's upstream
 iOS central filters for its own service UUID, and the Linux client must opt
 in with `--desktop-peer`. this separates discovery, not packet format or
-cryptographic trust. no phone-on hardware result yet. fallback to the old
-stock-service host only with explicit Windows `--host --stock-host` and Linux
+cryptographic trust. **after this document's earlier snapshot**, the user
+reported the desktop-service test worked with phone Bluetooth on throughout;
+we still lack direction-by-direction logs. fallback to the old stock-service
+host only with explicit Windows `--host --stock-host` and Linux
 `CHATT3R_LE_PEER= ./scripts/chatt3r ...`, with phone Bluetooth off.
 
 in the successful run Linux logged two announcement fragments from
@@ -96,14 +106,15 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 
 ### next work, in order
 
-1. **test the new desktop-only service on the same Windows/Linux PC pair,
-   with phone Bluetooth on.** pull/build both sides: Windows runs `--host`;
+1. **record the phone-on result accurately and, when practical, repeat it
+   direction by direction** on the same pair. Windows runs `--host`; Linux
    Linux `./scripts/chatt3r --desktop-peer --scan-only --scan-seconds 30`
    and then `./scripts/chatt3r --desktop-peer --debug --scan-seconds 90
    --name laptop` (one shell line). the launcher bypasses its saved phone
-   for this flag. the desktop service filters out stock BitChat only if real advertisements
-   and OS scans behave as the inspected iOS filter suggests. record both
-   consoles; do not describe the phone-on test as working yet.
+   for this flag. the user says the new path worked while phone Bluetooth
+   stayed on; record which texts arrived on each side, with sanitized
+   simultaneous consoles. don't infer Wi-Fi/cellular switch states or
+   multi-subscriber resilience from that report.
 2. if `count=2` persists on the desktop service, design competing-subscriber
    handling: bind fragments and notifications to a selected GATT session
    after validation, reject/ignore others without blacklisting the chosen
