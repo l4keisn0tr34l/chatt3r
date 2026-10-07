@@ -97,10 +97,14 @@ existing directory you own; nothing is stored unless you opt in:
 
 ```bash
 mkdir -m 700 -p "$HOME/chatt3r-file-test"
+./scripts/chatt3r --build
 ./scripts/chatt3r --name laptop --debug --receive-files "$HOME/chatt3r-file-test"
 ```
 
-this laptop's local `CHATT3R_LE_PEER` setting makes the launcher choose its
+the explicit `--build` matters: the launcher otherwise reuses an existing
+older binary. if the first offline build lacks the newly added `flate2`
+crate, run `cargo build --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r`
+once online, then rerun the launcher. this laptop's local `CHATT3R_LE_PEER` setting makes the launcher choose its
 known phone with `--wait-for-peer` for this run; on another Linux setup use
 the already working stock scan/direct-LE mode. do not add `--desktop-peer`,
 `--host` or `--scan-only`. after a signed peer announcement, send the image
