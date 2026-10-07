@@ -1,12 +1,15 @@
 # laptop ↔ laptop: remove the phone dependency
 
-status: **linux ↔ windows pc public text user-confirmed over BLE with phone
-Bluetooth off.** Linux received a signed `windows-pc` announcement (two
-fragments) and the Windows replies `yo` and `ok got it`; Linux sent `hi` and
-`yoooooooo`, and the user confirmed the exchange. there was **no iphone
-radio link** in this run. Wi-Fi/cellular switch states were not recorded;
-the client used BLE GATT, not an Internet service. this is one physical
-one-subscriber session, not proof of robust multi-peer selection or reconnect.
+status: **linux ↔ windows pc two-way public text user-confirmed over BLE**
+on the stock service with phone Bluetooth off **and** on the desktop-only
+service with phone Bluetooth on throughout. in the earlier phone-off run,
+Linux received a signed `windows-pc` announcement (two fragments) and Windows
+replies `yo` and `ok got it`; Linux sent `hi` and `yoooooooo`. the user
+explicitly clarified that the later phone-on run also exchanged text **both
+ways**; no simultaneous phone-on console transcript was retained. Wi-Fi/
+cellular switch states were not recorded. BLE GATT, not an Internet service,
+carried the PC link. these sessions do not prove robust multi-peer selection
+or reconnect.
 
 prior Windows runs with phone Bluetooth on rejected inbound writes when the
 host saw a transient empty subscriber list and later **count=2** subscribers.
@@ -16,12 +19,13 @@ environment. phone-off is a **temporary isolation workaround**, not the
 intended product design. the new **desktop-only BLE service UUID**
 `88d5ec18-2621-4233-ad22-82702a601c97` is intended to prevent stock
 BitChat's filtered scan from subscribing to the Windows desktop host, while
-Linux explicitly opts in with `--desktop-peer`. the user later reported
-that the desktop-service test **worked with phone Bluetooth on throughout**;
-direction-specific logs and Wi-Fi/cellular switch states were not recorded.
+Linux explicitly opts in with `--desktop-peer`. the user confirmed
+**two-way text with phone Bluetooth on throughout** on that service;
+simultaneous logs and Wi-Fi/cellular switch states were not recorded.
 this does not prove durable multi-subscriber selection or identify the
 second subscriber in earlier stock-service runs. Windows
-`--host --stock-host` keeps the original stock-service phone-off link available for regression testing.
+`--host --stock-host` keeps the original stock-service phone-off link
+available for regression testing.
 windows → stock iphone text is also user-confirmed on a Windows central client;
 iphone → windows is not separately confirmed.
 linux ↔ iphone text is user-confirmed bidirectional and offline. no files,
@@ -54,15 +58,15 @@ private chat, relaying or application delivery receipts are shipped.
 - **observed:** another Windows PC reports peripheral-role support and
   advertisement `started`, and Linux received its signed announcement and
   Windows public text in the phone-off run. the user confirmed two-way text.
-  **still missing:** Windows-side transcript for the successful run, a
-  repeatable simultaneous test with phone Bluetooth on, a verified
-  disconnect/reconnect sequence, and Linux ↔ Linux hosting.
+  **still missing:** retained Windows-side transcript for the phone-off run,
+  simultaneous console records of a repeat phone-on two-way session, a
+  verified disconnect/reconnect sequence, and Linux ↔ Linux hosting.
 
 ## architecture checkpoint — first phone-free signed text
 
 ```text
 windows pc advertises a BLE service, hosts notify/write GATT characteristic
-  stock BitChat service: proven two-way phone-off; desktop service: user-reported phone-on success
+  stock BitChat service: user-confirmed two-way phone-off; desktop service: user-confirmed two-way phone-on
        ↓ discover
 linux laptop scans and connects as central
        ↓ write/notify over one BLE link
@@ -119,14 +123,16 @@ before promising resumed chat or files.
 
 ## next proof, in order
 
-1. **hardware-test the new desktop service:** Windows `--host` advertises
-   `88d5ec18-2621-4233-ad22-82702a601c97` by default (the earlier
+1. **if repeating the confirmed phone-on test for logs:** Windows `--host`
+   advertises `88d5ec18-2621-4233-ad22-82702a601c97` by default (the earlier
    stock-service host remains selectable with `--host --stock-host`); Linux
    `--desktop-peer --scan-only` should show it while ignoring the phone's
-   stock BitChat service. the user reported a phone-on success; repeat short
-   text both ways when practical and collect simultaneous Windows/Linux logs.
-   this is a BLE discovery split, **not** a security or multi-client guarantee. record
-   Wi-Fi switch states separately if a fully isolated offline claim matters.
+   stock BitChat service. the user already confirmed text in both directions
+   with phone Bluetooth on throughout; collect simultaneous Windows/Linux logs
+   if practical for reproducible evidence, not as a prerequisite to calling
+   that exchange two-way. this is a BLE discovery split, **not** a security or
+   multi-client guarantee. record Wi-Fi switch states separately if a fully
+   isolated offline claim matters.
 2. if Windows still sees `count=2`, count/identify WinRT subscribed sessions
    without committing device addresses. eventually select a validated GATT
    session, isolate fragments/notifications by session, and reject other

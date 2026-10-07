@@ -1,16 +1,17 @@
 # trying chatt3r on windows
 
-**status: one-subscriber hardware success, not a finished peer.** the user
-confirmed **linux ↔ windows pc public text** over BLE with the iphone's
-Bluetooth off: Linux received the signed `windows-pc` announcement and the
-Windows replies `yo` and `ok got it`, and the user confirmed the exchange.
-when the phone was nearby with Bluetooth on, the Windows host reported **two
-subscribers** and refused the inbound write. the host now advertises a
+**status: two-way public text user-confirmed, not a finished peer.** the
+stock-service run worked with the iphone's Bluetooth off: Linux received the
+signed `windows-pc` announcement and Windows replies `yo` and `ok got it`.
+the user also explicitly confirmed linux ↔ windows **two-way text** on the
+desktop-only service with iphone Bluetooth on throughout.
+on earlier stock-service attempts with phone Bluetooth on, the Windows host
+reported **two subscribers** and refused the inbound write. the host now advertises a
 **desktop-only service UUID** and Linux opts into it with `--desktop-peer`, so
-stock BitChat's filtered service scan should not connect to that host. this
-user later reported the new service **worked with phone Bluetooth on
-throughout**; direction-specific logs were not captured.
-`--host --stock-host` preserves the original service as an explicit fallback for the proven phone-off test. phone-off was a test isolation step,
+stock BitChat's filtered service scan should not connect to that host. the
+phone-on two-way run has no retained simultaneous console transcript.
+`--host --stock-host` preserves the original service as an explicit fallback
+for the proven phone-off test. phone-off was a test isolation step,
 not an intended requirement. no private messages, files, delivery receipts or
 live-session reconnect. windows → iphone text also worked on a different pc;
 iphone → windows has not been separately confirmed.
@@ -216,9 +217,9 @@ message replay is implemented.
 windows `--host` uses native Windows GATT, while Linux scans as a central;
 both roles feed the shared signed packet/chat code. two-way public text is
 user-confirmed on real BLE hardware **using the earlier stock service with
-phone Bluetooth off**. the desktop-only service later **worked according to
-the user with phone Bluetooth on throughout**; the directions were not
-separately recorded. the one-subscriber host still fails closed if another
-central subscribes. Linux-only advertising is still blocked on this laptop's
+phone Bluetooth off**. the user explicitly confirmed **two-way text on
+the desktop-only service with phone Bluetooth on throughout**; no simultaneous
+console transcript was retained. the one-subscriber host still fails closed
+if another central subscribes. Linux-only advertising is still blocked on this laptop's
 Realtek controller. see [laptop-to-laptop.md](laptop-to-laptop.md) for evidence
 and next steps.

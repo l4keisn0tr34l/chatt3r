@@ -21,7 +21,7 @@ windows, and iphone. right now, it's an early **public-text-only** client.
 | photos, voice notes, arbitrary files | not supported by chatt3r yet |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
-| linux ↔ windows pc text | **user-confirmed two-way signed public text over BLE without the iphone** using the stock service with phone Bluetooth off; the user later reported the desktop-only service works with phone Bluetooth on, but direction-specific logs were not captured |
+| linux ↔ windows pc text | **user-confirmed two-way signed public text over BLE** on the stock service with phone Bluetooth off **and** desktop-only service with phone Bluetooth on throughout; a simultaneous phone-on console transcript was not retained |
 
 the user confirmed an iphone ↔ linux text exchange on the direct le path with
 the iphone offline. exact wifi/cellular switch states, multiple repetitions,
@@ -35,10 +35,10 @@ these steps are for ubuntu. **windows:** see the experimental
 [windows setup and run guide](docs/windows.md); the windows gatt **host**
 exchanged two-way public text with linux in a one-subscriber hardware test.
 new `--desktop-peer` discovery separates the PC service from stock BitChat;
-the user reported it worked with phone Bluetooth on throughout, but no
-simultaneous direction-specific logs were recorded. Windows
-`--host --stock-host` keeps the proven stock-service route as an explicit phone-off fallback. windows → iphone text
-is separately user-confirmed. for a coding-agent handoff, start at
+the user explicitly confirmed text **both ways** with phone Bluetooth on
+throughout, but no simultaneous console transcript was retained. Windows
+`--host --stock-host` keeps the proven stock-service route as an explicit
+phone-off fallback. windows → iphone text is separately user-confirmed. for a coding-agent handoff, start at
 [AGENTS.md](AGENTS.md) and [docs/codex-handoff.md](docs/codex-handoff.md).
 
 ### 1. set up the laptop
@@ -253,10 +253,11 @@ procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
 2. **harden phone-free desktop text:** linux ↔ windows exchanged signed text
    with the phone's Bluetooth off. the new desktop-only discovery UUID should
    keep that Windows host out of the stock iphone's service scan, while both
-   desktop sides keep the same signed packet format. the user reported the
-   new path working with phone Bluetooth on; repeat direction-specific tests
-   before claiming robust multi-peer operation. competing desktop subscribers,
-   out-of-range/reconnect and ambiguous writes still need safe handling. never
+   desktop sides keep the same signed packet format. the user confirmed
+   two-way text with phone Bluetooth on throughout; a repeat test could capture
+   simultaneous logs. this does **not** prove robust multi-peer operation.
+   competing desktop subscribers, out-of-range/reconnect and ambiguous
+   writes still need safe handling. never
    replay an ambiguous message. linux ↔ linux still needs a working
    advertising adapter and a linux gatt server; local bluez registration
    fails on this controller.

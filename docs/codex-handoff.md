@@ -1,13 +1,12 @@
 # codex handoff: chatt3r
 
 current snapshot: **user-confirmed two-way public text over BLE between the
-Linux laptop and Windows PC, with iphone Bluetooth off.** this is one physical
-session. the user later reported that the new desktop-only service **worked
-on hardware with iphone Bluetooth on throughout**, but did not separately
-confirm directions or provide simultaneous logs for that run. this is not a
-finished multi-device link. check the
-working tree, current code and [laptop-to-laptop.md](laptop-to-laptop.md)
-before updating claims.
+Linux laptop and Windows PC**, first on the stock service with iphone Bluetooth
+off and later on the desktop-only service with iphone Bluetooth **on throughout**.
+the user explicitly clarified that the phone-on run exchanged text **both
+ways**. we do not have a saved simultaneous console transcript from that run.
+this is not a finished multi-device link. check the working tree, current code
+and [laptop-to-laptop.md](laptop-to-laptop.md) before updating claims.
 
 ## purpose and evidence
 
@@ -21,7 +20,7 @@ live-session reconnect are implemented.
 | --- | --- |
 | stock iphone ↔ linux | bidirectional public text user-confirmed on physical BLE; includes an iphone-offline Linux direct-LE run |
 | windows → iphone | user-confirmed native Windows BLE client text; iphone → windows not separately confirmed |
-| linux ↔ windows pc | **user-confirmed two-way public text over BLE with iphone Bluetooth off** using the stock service. Linux received signed `windows-pc` announcement and text `yo`, `ok got it`; Linux sent `hi`, `yoooooooo`. user later reported desktop-only service worked with phone Bluetooth **on throughout**, but directions and Wi-Fi/cellular switch states weren't separately recorded |
+| linux ↔ windows pc | **user-confirmed two-way public text over BLE with iphone Bluetooth off** using the stock service. Linux received signed `windows-pc` announcement and text `yo`, `ok got it`; Linux sent `hi`, `yoooooooo`. user also confirmed **two-way text** on the desktop-only service with phone Bluetooth **on throughout**; no simultaneous phone-on transcript or Wi-Fi/cellular switch states were recorded |
 | linux ↔ linux | not working; this laptop's Realtek adapter rejected a temporary BlueZ advertisement (`Invalid Parameters (0x0d)`) |
 | software-only simulated peers | signed two-way text, fragmented frames, duplicate/rejection tests; **not** radio evidence |
 
@@ -34,8 +33,8 @@ an ambiguous message after link failure.
 ## architecture checkpoint: proven one-link text
 
 ```text
-windows pc --host (WinRT GATT; proven stock service with phone off,
-                    desktop-only service now default, radio test pending)
+windows pc --host (WinRT GATT; stock service two-way with phone off,
+                    default desktop-only service two-way with phone on)
   ↑ central writes / ↓ characteristic notifications
 linux laptop (btleplug fresh scan + connect + subscribe)
   ↔ shared BitChat-compatible signed packets, Receiver, terminal chat
@@ -93,10 +92,10 @@ devices. don't unpair/reset devices to hide this issue. a new **desktop-only
 service UUID** is now used by Windows `--host`; stock BitChat's upstream
 iOS central filters for its own service UUID, and the Linux client must opt
 in with `--desktop-peer`. this separates discovery, not packet format or
-cryptographic trust. **after this document's earlier snapshot**, the user
-reported the desktop-service test worked with phone Bluetooth on throughout;
-we still lack direction-by-direction logs. fallback to the old stock-service
-host only with explicit Windows `--host --stock-host` and Linux
+cryptographic trust. the user explicitly confirmed **two-way public text**
+on the desktop service with phone Bluetooth on throughout; no simultaneous
+phone-on transcript was retained. fallback to the old stock-service host only
+with explicit Windows `--host --stock-host` and Linux
 `CHATT3R_LE_PEER= ./scripts/chatt3r ...`, with phone Bluetooth off.
 
 in the successful run Linux logged two announcement fragments from
@@ -110,15 +109,16 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 
 ### next work, in order
 
-1. **record the phone-on result accurately and, when practical, repeat it
-   direction by direction** on the same pair. Windows runs `--host`; Linux
-   Linux `./scripts/chatt3r --desktop-peer --scan-only --scan-seconds 30`
-   and then `./scripts/chatt3r --desktop-peer --debug --scan-seconds 90
-   --name laptop` (one shell line). the launcher bypasses its saved phone
-   for this flag. the user says the new path worked while phone Bluetooth
-   stayed on; record which texts arrived on each side, with sanitized
-   simultaneous consoles. don't infer Wi-Fi/cellular switch states or
-   multi-subscriber resilience from that report.
+1. **retain the two-way phone-on confirmation and, when practical, collect
+   simultaneous console evidence in a repeat test** on the same pair.
+   Windows runs `--host`; Linux runs `./scripts/chatt3r --desktop-peer
+   --scan-only --scan-seconds 30` and then `./scripts/chatt3r --desktop-peer
+   --debug --scan-seconds 90 --name laptop` (each on one shell line). the
+   launcher bypasses its saved phone for this flag. the user already confirmed
+   text in both directions with phone Bluetooth on throughout; collecting
+   sanitized logs would improve provenance, not establish two-way text for
+   the first time. don't infer Wi-Fi/cellular switch states or multi-subscriber
+   resilience from that run.
 2. if `count=2` persists on the desktop service, design competing-subscriber
    handling: bind fragments and notifications to a selected GATT session
    after validation, reject/ignore others without blacklisting the chosen
