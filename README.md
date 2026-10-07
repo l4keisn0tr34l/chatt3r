@@ -19,7 +19,7 @@ opt-in, software-tested receive-only small public files on the Linux phone path.
 | startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait (closed-app wait observed, reopen transition pending) |
 | known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
 | longer text / compression | not supported yet; max 99 utf-8 bytes |
-| public file receive | opt-in small `--receive-files <existing-dir>` on Linux phone link; **software-tested, first iPhone image log shows no saved file** (rejected type-`0x20` frames). no sending, private files, or general media guarantee |
+| public file receive | opt-in small `--receive-files <existing-dir>` on Linux phone link; **software-tested; iPhone image fragments declared 504 bytes but arrived as 182**, so no saved file reported. file-mode direct LE now requests larger ATT MTU; not yet radio-verified. no sending, private files, or general media guarantee |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
 | linux ↔ windows pc text | **user-confirmed two-way signed public text over BLE** on the stock service with phone Bluetooth off **and** desktop-only service with phone Bluetooth on throughout; a simultaneous phone-on console transcript was not retained |
@@ -268,9 +268,11 @@ procedure is in [docs/linux-iphone-test.md](docs/linux-iphone-test.md).
 3. **test receive-only small files on hardware:** Linux `--receive-files` now
    verifies signed public `0x22` packets, caps expansion and stores selected
    MIME as randomly named `.bin` files. the first stock-iPhone image attempt
-   shows no saved file: many 182-byte type-`0x20` frames were rejected before
-   file validation. metadata-only diagnostics now distinguish declared framing from
-   observed size; see [file-transfer-audit](docs/file-transfer-audit.md). no file sending,
+   shows no saved file: `0x20` image fragments declared **504 bytes** but
+   arrived as **182**, the previous ATT value limit. opt-in direct-LE file mode
+   now requests ATT MTU 517 (plain text still requests 185) and refuses file
+   mode if the negotiated value limit is below 504. **hardware verification is
+   pending**; see [file-transfer-audit](docs/file-transfer-audit.md). no file sending,
    private files, arbitrary file picker, or delivery receipts are implemented.
 
 mesh, speed optimizations, and a gui come later. working direct transfers first.

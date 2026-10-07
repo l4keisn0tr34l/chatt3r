@@ -68,7 +68,13 @@ are not delivery receipts. a signed peer announce proves a packet was received
 and verified; the separate user observation of iphone-screen text is the
 evidence for outgoing message delivery.
 the user confirmed `android` is their iphone's chosen BitChat nickname. no
-message is replayed after disconnect.
+message is replayed after disconnect. text-only direct LE still requests
+ATT MTU 185. for the **opt-in** `--receive-files` experiment only, a separate
+MTU 517 request was added after a stock iPhone image produced file fragments
+with 504 bytes declared but only 182 received. that larger negotiation and
+file receive have **not** been tested on radio; if the negotiated value limit
+stays below 504, the file-mode connection refuses the test rather than
+accepting incomplete fragments. no bond or adapter changes are required.
 
 **evidence and next checkpoint:** offline unit tests and clippy pass; launcher
 and pty smoke tests pass. a physical direct le probe negotiated mtu 185,

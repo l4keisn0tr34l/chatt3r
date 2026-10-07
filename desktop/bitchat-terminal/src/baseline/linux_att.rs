@@ -15,6 +15,8 @@ const ATT_CID: u16 = 4;
 const LE_PUBLIC: u8 = 1;
 const NOTIFY: u8 = 0x1b;
 const MAX_ATT: usize = 517;
+pub const TEXT_ATT_MTU: u16 = 185;
+pub const FILE_ATT_MTU: u16 = 517; // opt-in attempt to fit observed 504-byte file values (+3 ATT)
 
 #[repr(C)]
 struct L2Addr {
@@ -36,6 +38,17 @@ fn le16(bytes: &[u8]) -> io::Result<u16> {
     Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
+fn negotiated_att_mtu(requested: u16, reply: &[u8]) -> io::Result<u16> {
+    if reply.len() != 3 || reply[0] != 0x03 {
+        return Err(invalid("malformed ATT MTU response"));
+    }
+    let peer_mtu = le16(&reply[1..])?;
+    if !(23..=MAX_ATT as u16).contains(&peer_mtu) {
+        return Err(invalid("invalid peer ATT MTU"));
+    }
+    Ok(peer_mtu.min(requested))
+}
+
 fn matches_uuid(bytes: &[u8], uuid: Uuid) -> bool {
     bytes.len() == 16
         && bytes
@@ -47,10 +60,12 @@ fn matches_uuid(bytes: &[u8], uuid: Uuid) -> bool {
 
 /// iOS is dual-role: it can write to us while we discover its GATT server.
 /// We expose no server attributes, so reject incoming requests separately.
-fn incoming_att_request(packet: &[u8]) -> Option<Vec<u8>> {
+fn incoming_att_request(packet: &[u8], local_mtu: u16) -> Option<Vec<u8>> {
     let opcode = *packet.first()?;
     if opcode == 0x02 && packet.len() == 3 {
-        return Some(vec![0x03, 0xb9, 0x00]); // our receive MTU: 185
+        let mut reply = vec![0x03];
+        reply.extend(local_mtu.to_le_bytes());
+        return Some(reply);
     }
     if matches!(
         opcode,
@@ -101,7 +116,11 @@ impl DirectAtt {
         address: [u8; 6],
         service: Uuid,
         characteristic: Uuid,
+        requested_mtu: u16,
     ) -> io::Result<Arc<Self>> {
+        if !matches!(requested_mtu, TEXT_ATT_MTU | FILE_ATT_MTU) {
+            return Err(invalid("unsupported direct LE ATT MTU request"));
+        }
         let socket = Arc::new(
             timeout(Duration::from_secs(20), connect_socket(address))
                 .await
@@ -129,7 +148,7 @@ impl DirectAtt {
                     if packet[0] == 0x1d && write_packet(&reader, &[0x1e]).await.is_err() {
                         break;
                     }
-                } else if let Some(response) = incoming_att_request(&packet) {
+                } else if let Some(response) = incoming_att_request(&packet, requested_mtu) {
                     if write_packet(&reader, &response).await.is_err() {
                         break;
                     }
@@ -148,8 +167,10 @@ impl DirectAtt {
             characteristic: 0,
             mtu: 23,
         };
-        let mtu_reply = link.request(&[0x02, 0xb9, 0x00], 0x03).await?; // request 185
-        link.mtu = le16(&mtu_reply[1..])?.min(185);
+        let mut exchange = vec![0x02];
+        exchange.extend(requested_mtu.to_le_bytes());
+        let mtu_reply = link.request(&exchange, 0x03).await?;
+        link.mtu = negotiated_att_mtu(requested_mtu, &mtu_reply)?;
         if link.mtu < 39 {
             return Err(invalid("LE ATT MTU too small for signed BitChat fragments"));
         }
@@ -481,6 +502,25 @@ async fn read_packet(socket: &AsyncFd<OwnedFd>) -> io::Result<Vec<u8>> {
 mod tests {
     use super::*;
     #[test]
+    fn mtu_exchange_preserves_text_default_and_reports_actual_file_capability() {
+        assert_eq!(
+            negotiated_att_mtu(TEXT_ATT_MTU, &[0x03, 0x05, 0x02]).unwrap(),
+            185
+        );
+        assert_eq!(
+            negotiated_att_mtu(FILE_ATT_MTU, &[0x03, 0x05, 0x02]).unwrap(),
+            517
+        );
+        assert_eq!(
+            negotiated_att_mtu(FILE_ATT_MTU, &[0x03, 0xb9, 0]).unwrap(),
+            185
+        );
+        assert!(negotiated_att_mtu(FILE_ATT_MTU, &[0x03, 0x06, 0x02]).is_err());
+        assert!(negotiated_att_mtu(FILE_ATT_MTU, &[0x03, 0x05]).is_err());
+        assert!(negotiated_att_mtu(FILE_ATT_MTU, &[0x03, 0, 0]).is_err());
+    }
+
+    #[test]
     fn uuid_and_ranges_are_strict() {
         let uuid = Uuid::parse_str("f47b5e2d-4a9e-4c5a-9b3f-8e1d2c3a4b5c").unwrap();
         let reversed: Vec<u8> = uuid.as_bytes().iter().rev().copied().collect();
@@ -504,16 +544,20 @@ mod tests {
     #[test]
     fn incoming_iphone_request_does_not_steal_our_response() {
         assert_eq!(
-            incoming_att_request(&[0x12, 0x0b, 0x00, 0x02, 0x00]),
+            incoming_att_request(&[0x12, 0x0b, 0x00, 0x02, 0x00], TEXT_ATT_MTU),
             Some(vec![0x01, 0x12, 0x0b, 0x00, 0x01])
         );
         assert_eq!(
-            incoming_att_request(&[0x02, 0x17, 0x00]),
+            incoming_att_request(&[0x02, 0x17, 0x00], TEXT_ATT_MTU),
             Some(vec![0x03, 0xb9, 0x00])
         );
-        assert!(incoming_att_request(&[0x03, 0xb9, 0x00]).is_none());
-        assert!(incoming_att_request(&[0x11, 0x06]).is_none());
-        assert!(incoming_att_request(&[0x12]).is_none());
+        assert_eq!(
+            incoming_att_request(&[0x02, 0xb9, 0x00], FILE_ATT_MTU),
+            Some(vec![0x03, 0x05, 0x02])
+        );
+        assert!(incoming_att_request(&[0x03, 0xb9, 0x00], TEXT_ATT_MTU).is_none());
+        assert!(incoming_att_request(&[0x11, 0x06], TEXT_ATT_MTU).is_none());
+        assert!(incoming_att_request(&[0x12], TEXT_ATT_MTU).is_none());
     }
 
     #[test]

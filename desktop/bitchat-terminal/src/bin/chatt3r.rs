@@ -862,10 +862,16 @@ fn direct_retry_delay(attempt: u64) -> Duration {
 }
 
 #[cfg(target_os = "linux")]
+fn file_frame_fits(value_limit: usize) -> bool {
+    value_limit >= 504 // observed iPhone public-file fragment, not a general size guarantee
+}
+
+#[cfg(target_os = "linux")]
 async fn connect_direct(
     address: BDAddr,
     wait: bool,
     debug: bool,
+    receive_files: bool,
 ) -> Result<Option<std::sync::Arc<linux_att::DirectAtt>>> {
     if wait {
         println!("Waiting for the known phone's BitChat service… open the app when ready; ctrl-c cancels.");
@@ -875,7 +881,10 @@ async fn connect_direct(
         attempt = attempt.saturating_add(1);
         let result = tokio::select! {
             _ = tokio::signal::ctrl_c() => return Ok(None),
-            result = linux_att::DirectAtt::connect(address.into_inner(), SERVICE, CHARACTERISTIC) => result,
+            result = linux_att::DirectAtt::connect(
+                address.into_inner(), SERVICE, CHARACTERISTIC,
+                if receive_files { linux_att::FILE_ATT_MTU } else { linux_att::TEXT_ATT_MTU },
+            ) => result,
         };
         match result {
             Ok(link) => return Ok(Some(link)),
@@ -941,12 +950,21 @@ async fn main() -> Result<()> {
         if options.debug {
             println!("[ble] direct LE ATT for {address}; no BlueZ profile auto-connect, pairing unchanged");
         }
-        let Some(link) = connect_direct(address, options.wait_for_peer, options.debug).await?
+        let Some(link) = connect_direct(
+            address,
+            options.wait_for_peer,
+            options.debug,
+            options.receive_files.is_some(),
+        )
+        .await?
         else {
             return Ok(());
         };
         if options.debug {
-            println!("[ble] direct LE connected, GATT verified, notifications enabled; negotiated ATT MTU allows {}-byte frames", link.max_value());
+            println!("[ble] direct LE connected, GATT verified, notifications enabled; negotiated ATT MTU={} (value limit={})", link.max_value() + 3, link.max_value());
+        }
+        if options.receive_files.is_some() && !file_frame_fits(link.max_value()) {
+            return Err(format!("negotiated ATT value limit {} is below the observed 504-byte iPhone file fragment; cannot safely receive this image on this link. text remains available without --receive-files. no pairing changes needed", link.max_value()).into());
         }
         let receiver = link.take_notifications().await?;
         let notifications: BoxStream<'static, ValueNotification> =
@@ -1351,6 +1369,15 @@ mod tests {
         assert!(a.receive(&unsigned.encode().unwrap(), &output).is_err());
         assert_eq!(a.seen.len(), 1);
         assert_eq!(b.seen.len(), 1);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn observed_file_frame_requires_at_least_507_byte_att_mtu() {
+        assert!(!file_frame_fits(182));
+        assert!(!file_frame_fits(503));
+        assert!(file_frame_fits(504));
+        assert!(file_frame_fits(514));
     }
 
     #[test]

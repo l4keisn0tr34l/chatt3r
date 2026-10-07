@@ -135,26 +135,27 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 3. test Windows `/quit`/Ctrl-C and Linux teardown, out-of-range behavior and
    restart explicitly. the client does not reconnect an established session
    or provide application delivery ACKs.
-4. **diagnose the failed first iPhone → Linux image test:** the user observed
-   `[iphone] hi`, 166-byte type-`0x01` frames, many 182-byte type-`0x20`
-   notifications rejected as `truncated packet` or unsupported flags, and
-   later 175/103-byte type-`0x20` frames rejected as unsupported fragmented
-   type. **no saved image was reported**, and the old log omits flags, declared
-   length, fragment index/total and original type. 182 equals this direct-LE
-   session's max characteristic value (ATT MTU 185), but **truncation at ATT
-   is a hypothesis, not established from value size alone**. pinned Swift
-   `TransportConfig.bleDefaultFragmentSize=469` and
-   `BLEOutboundFragmentPlanner` use that default for public files; link
-   planner excludes fragment packets from refragmentation. installed phone
-   code and chosen link may differ. new bounded metadata-only diagnostics
-   (`protocol.rs:frame_shape`, first six and every 50th 0x20) can identify
-   declared vs received size and the untrusted original-type field on a repeat.
-   don't ask for raw file bytes/addresses; don't blindly change `--write-limit`
-   (it controls **outbound** values) or reset pairings. if frames are truly
-   cut to 182 bytes while declaring larger, receiving alone cannot restore
-   them; test a targeted per-link size/ATT negotiation hypothesis separately.
-   Linux ↔ Linux still needs a capable advertising adapter and a Linux GATT
-   server; sending files is not shipped.
+4. **test the opt-in ATT size fix before another image:** the second iPhone
+   image attempt produced actual `0x20` fragments marked original `0x22`,
+   `fragment=2..5/46`, version 1 flags 0, **declared total 504 bytes but only
+   182 value bytes arrived**; `Packet::decode` correctly rejected them. earlier
+   182-byte fragments with flag `0x04` were separately unsupported. there
+   was **no saved file reported**. 182 equals the direct-LE value limit from
+   the previous 185 ATT MTU request. the pinned Swift planner uses 469-byte
+   default chunks (22-byte frame header + 13-byte fragment envelope = 504),
+   consistent with this result; do not invent missing bytes or alter outbound
+   `--write-limit`. `linux_att.rs:DirectAtt::connect` now requests MTU 517
+   **only when `--receive-files` is opted in on direct LE**, and answers any
+   incoming exchange with the same value; default text stays at 185. after
+   peer response, `main` checks actual value limit >=504 and refuses this
+   opt-in session if not; plain text without the flag still works. this is
+   **unit/type-tested, not radio-verified**. first connect with the file flag
+   and record only negotiated ATT MTU/value limit. only if >=507/504, consider
+   one small image and verify signed saved bytes. if the peer caps at 185,
+   the stock sender must adapt its chunking or use another compatible link;
+   we cannot reconstruct truncated notifications. don't reset bonds/adapters,
+   share addresses/media, or claim file delivery from a GATT write. Linux ↔
+   Linux still needs a capable advertising adapter and a Linux GATT server.
 
 ## local checks and safety
 

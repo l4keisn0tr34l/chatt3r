@@ -88,13 +88,13 @@ isolated two-device test may avoid compressed announcements; this is a temporary
 baseline limitation, not a protocol rule. If a signed public message arrives
 before a valid announcement, wait for the next announce and resend the message.
 
-## optional diagnostic repeat after the failed image attempt (opt-in)
+## check the ATT size fix before retrying an image (opt-in)
 
 keep your working phone link and bond unchanged. the stock iPhone UI in the
 inspected source can **send a public image/voice note**, not necessarily an
-arbitrary document; choose a harmless **small image** (first assembled outer
-packet cap **16 KiB**, decoded file cap **64 KiB**). create a dedicated
-existing directory you own; nothing is stored unless you opt in:
+arbitrary document. first, **connect only; do not send another image yet**.
+create a dedicated existing directory you own; nothing is stored unless you
+opt in:
 
 ```bash
 mkdir -m 700 -p "$HOME/chatt3r-file-test"
@@ -105,27 +105,33 @@ mkdir -m 700 -p "$HOME/chatt3r-file-test"
 the explicit `--build` matters: the launcher otherwise reuses an existing
 older binary. if the first offline build lacks the newly added `flate2`
 crate, run `cargo build --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r`
-once online, then rerun the launcher. this laptop's local `CHATT3R_LE_PEER` setting makes the launcher choose its
-known phone with `--wait-for-peer` for this run; on another Linux setup use
-the already working stock scan/direct-LE mode. do not add `--desktop-peer`,
-`--host` or `--scan-only`. after a signed peer announcement, send the image
-in iPhone BitChat's public Bluetooth room. a successful receive should report
-`received-<random>.bin`, size and SHA-256; verify bytes/hash manually and
-record whether it arrived once. this saves **generic `.bin` without using the
+once online, then rerun the launcher. this laptop's local `CHATT3R_LE_PEER`
+setting makes the launcher choose its known phone with `--wait-for-peer` for
+this run; on another Linux setup use the already working direct-LE mode.
+do not add `--desktop-peer`, `--host` or `--scan-only`.
+
+opt-in direct LE now asks for **ATT MTU 517** instead of the proven text
+default **185**. note the `[ble] negotiated ATT MTU=… (value limit=…)` line.
+if the negotiated value limit is **below 504**, file mode stops with a clear
+error and the image cannot fit on this link; rerun without `--receive-files`
+for the previously working public text. do **not** resend the image. if the
+limit is **at least 504**, that establishes link capacity only, not a file
+transfer. a later small public-image test (encoded outer frame <=16 KiB,
+decoded file <=64 KiB) still needs one observed result: a successful receive
+would report `received-<random>.bin`, size and SHA-256; verify bytes/hash
+manually and record whether it arrived once. this saves **generic `.bin` without using the
 untrusted filename or auto-opening media**. only jpeg/png/gif/webp with
 matching magic bytes and `application/octet-stream` are allowed for the first
 test. the 128-byte write limit is not a measured MTU or a phone file size
-promise. in the first run, the phone sent many 182-byte type-`0x20` values
-that chatt3r rejected as truncated or unsupported, and no saved image was reported.
-this is **not** a successful file test. a newer build samples the first six
-and every 50th fragment and adds `[rx-shape]`: version, flags, declared and
-actual packet size, and fragment index/count/original type if present.
-for a repeat, report just a few sanitized `[rx-shape]` / `[drop]` lines and
-negotiated ATT MTU; no file bytes, device address or raw packet dump. if the
-frame claims more bytes than arrived, changing `--write-limit` won't restore
-missing incoming bytes (that flag controls outbound writes). don't reset
-Bluetooth or remove bonds. other possible drops remain MIME, signature,
-fragment count/16 KiB cap or unsupported packet type.
+promise. the second image attempt recorded version-1 `0x20` fragments of
+original type `0x22`: **504 declared bytes, 182 received bytes**, with no
+saved image reported. this is not a successful file test. for this connection
+check, report only negotiated ATT MTU/value limit and whether public text
+still works, not file bytes, device address or raw packet dump. changing
+`--write-limit` won't restore missing incoming bytes (that flag controls
+outbound writes); don't reset Bluetooth or remove bonds. once link size is
+established, other possible drops remain MIME, signature, fragment count/
+16 KiB cap or unsupported packet type.
 
 ## Record evidence
 

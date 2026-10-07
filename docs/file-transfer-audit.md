@@ -106,8 +106,30 @@ app**. `protocol.rs:frame_shape` now reports *only* version, flags, declared
 and actual frame sizes, and optional fragment index/count/original type for
 bounded samples in `--debug`, never peer IDs or content. a repeat should
 record a few sanitized `[rx-shape]` + `[drop]` lines and negotiated ATT MTU.
-do not alter bonds, guess `--write-limit` (outbound only), accept truncated
-bytes as a file, or report a working transfer yet.
+a **second run resolved the ambiguity for several file fragments**:
+`version=1 kind=0x20 flags=0x00 declared_payload=482 actual=182
+expected=Some(504) fragment=2..5/46 original_type=0x22`.
+those values are incomplete signed-file *containers* and cannot be assembled
+from the available 182 bytes. the 469-byte Swift default chunk plus a 22-byte
+v1 header and 13-byte fragment prefix equals 504, matching the observed
+header. this establishes a size mismatch on the tested link, not that the
+stock phone supports a larger ATT MTU or that every fragment in the train
+is the same. earlier `0x04` flagged fragments and later unsupported original
+types remain separate; no saved image was reported.
+
+`linux_att.rs` now requests **517** rather than **185** as the local ATT MTU
+*only* for direct-LE sessions opted into `--receive-files`; the reciprocal
+MTU reply advertises the same size. the peer's response is range-checked and
+negotiated by minimum. `chatt3r.rs` refuses this opt-in session when its
+value limit is below the observed **504** bytes (ATT MTU <507); the proven
+text default remains 185. tests establish the policy and software packet
+path, **not that this adapter/iPhone negotiates 507+ or transfers an image**.
+first test connection only and report negotiated value limit. if below 504,
+file send is blocked before trying an image; a sender-side chunk limit or
+another compatible link would be needed. if high enough, separately test
+receipt, signature, file limits and byte/hash on radio. do not alter bonds,
+guess `--write-limit` (outbound only), accept truncated bytes as a file, or
+report a working transfer yet.
 
 ## answer to the proposed protocol
 

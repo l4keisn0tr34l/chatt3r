@@ -16,8 +16,11 @@ what has shipped. prefer observed results and current code over old roadmaps.
 - opt-in `--receive-files <existing-dir>` on a Linux phone link has a
   **software-tested small public file receiver**. the first iphone image
   radio attempt has **no saved file reported**: 182-byte type-`0x20`
-  notifications were rejected as truncated or unsupported. original type/declared length were
-  not logged. do not call this working file receive. no file sending,
+  notifications were rejected as truncated or unsupported. the repeat
+  recorded stock file fragments of **504 declared vs 182 received bytes**
+  (`0x20`, original `0x22`). only opt-in Linux direct-LE file mode now requests
+  ATT MTU 517; default text stays at 185. this is compile/unit-tested, not a
+  working file-radio result. no file sending,
   private files, general media compatibility, or receipts.
   keep backend-specific BLE code separate from the shared signed packet/chat
   layer. do not replay a possibly delivered user message on reconnect. BLE
