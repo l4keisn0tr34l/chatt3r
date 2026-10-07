@@ -66,8 +66,12 @@ linux laptop (btleplug fresh scan + connect + subscribe)
   a **pure, bounded canonical-v2-layout file TLV codec** with independent
   layout fixture (strict reader; no legacy-length or multi-content support),
   currently unit-tested only; `--bin chatt3r` does not import it, accept
-  file frames, send media or save files. long-packet canonical compression,
-  signatures and larger per-type fragment bounds are still missing.
+  file frames, send media or save files. `baseline/file_wire.rs` is a pure
+  signed-v2 `0x22` **wire-preimage** checker with Python-generated raw-DEFLATE
+  and uncompressed fixtures; it does not inflate or validate compressed
+  content. Apple's canonical recompression has **not** been cross-checked.
+  bounded expansion, cross-language fixtures and larger per-type fragment
+  bounds are still missing.
 - [upstream-analysis.md](upstream-analysis.md) records source attribution;
   [direct-le.md](direct-le.md) records phone-path design/evidence;
   [windows.md](windows.md) has native PowerShell run commands;

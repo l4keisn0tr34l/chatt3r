@@ -25,3 +25,16 @@ runtime cross-check. `cargo test --lib` checks the bounded pure Rust codec.
 It has **no** signed outer v2 packet, canonical compression, fragmentation,
 filesystem write, BLE exchange or application delivery receipt. Do not use
 it as proof that file transfer works with the stock app.
+
+`file-wire-v2.json` has two *synthetic* signed outer v2 `0x22` frames:
+one with the uncompressed TLV above, one with a 450-byte TLV compressed
+using Python zlib **raw DEFLATE** (level 6), a big-endian original-length
+prefix and the compressed flag. Both sign a TTL-zero, signature-free,
+default-padded frame with public test seed `42` repeated 32 times. Rebuild
+with `python3 test-vectors/generate-file-wire-v2.py` (requires Python's
+`cryptography` package); `cargo test --lib` checks exact preimages and
+signatures in Rust. This verifies an independently generated layout, **not**
+byte identity with Apple's Compression framework or an executed Swift/
+Android cross-check. The pure `file_wire` module authenticates these *wire*
+bytes against a caller-supplied key but does not decompress, admit a sender,
+or pass files into the BLE chat.
