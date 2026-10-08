@@ -85,7 +85,8 @@ what to look for:
   waiting for the same configured phone. ordinary scan/client and Windows
   host paths still require restarting. messages are never automatically replayed.
 - rejected packet: `--debug` shows the reason. public text up to 1,024 UTF-8
-  bytes is software-tested; longer-text phone compatibility remains pending.
+  bytes is software-tested; phone 100/256/1,024-byte numbered ASCII has been
+  confirmed both ways. native Windows longer text remains pending.
 
 ## if bluez picks the phone's audio profile instead of bitchat le
 
@@ -133,13 +134,37 @@ remain bounded across reconnects. an unfinished terminal draft is discarded
 when the failed session closes. it cannot launch the ios app or promise
 background advertising. permission, configuration and unsupported-adapter
 failures still exit rather than retrying forever.
+after a successful direct-LE setup, OS error 38 (`ENOSYS`) during a later
+setup is retried with the same backoff. on cold startup it still exits.
+Linux Bluetooth can use this errno for an unmapped connection status;
+it does not always mean an absent syscall. socket setup diagnostics now
+include their stage and retain the underlying errno.
 `--scan-only`, `--doctor`, `--build`, and an explicit `--direct-le` still do what
 you ask. without the local setting, opt in with `--direct-le <address>
 --wait-for-peer`. this setting is only on your machine, not in the git repo.
 
 ## known-phone recovery: device checkpoint
 
-status: software tests pass; physical reconnection is not yet confirmed.
+status (2026-10-09): the first physical app-close check **failed**. the client
+received a signed LEAVE, detected notification closure and entered its
+five-second retry, then exited on OS error 38. the correction below passes
+software tests; physical close/reopen reconnection is still unconfirmed.
+
+`retryable_direct_startup` now receives whether an earlier setup succeeded
+in this process. only then can `ENOSYS` retry in opted-in wait mode. cold
+startup `ENOSYS`, permissions, invalid configuration/data, missing/down
+adapters and genuinely unsupported protocols remain fatal. no message replay,
+adapter reset, bond change, protocol change or discovery/role change is added.
+61 unit tests, strict Linux/Windows checks, launcher smoke and six PTY cases
+pass; the binary is rebuilt. regression tests cover retry classification for
+raw/contextual error 38 after a successful setup and permanent-error guards,
+not a physical reconnection.
+
+Linux's [`bt_to_errno`](https://github.com/torvalds/linux/blob/master/net/bluetooth/lib.c)
+maps unknown Bluetooth status codes to `ENOSYS`. the original transcript did
+not identify the socket stage or controller status, so this is a possible
+kernel explanation, not a captured root cause. the new stage diagnostics
+will distinguish socket creation/bind/readiness from connection completion.
 use the existing local saved-phone setting, with file mode off for this first
 check. quit any old client first, then:
 
@@ -163,8 +188,10 @@ claiming a reconnect. an out-of-range/return test can establish link recovery
 separately. share only sanitized status/error lines and whether text arrived;
 no device addresses, peer IDs, private text or full transcripts. check the
 other screen before resending any message whose delivery was uncertain.
-after short-text recovery passes, continue
-[the longer-text checkpoint](long-text-checkpoint.md).
+phone 100/256/1,024-byte numbered text is already confirmed both ways in
+[the longer-text checkpoint](long-text-checkpoint.md); it does not need to
+be established again to test this lifecycle fix. native Windows longer text
+remains a separate physical gate.
 
 ## commands inside chat
 

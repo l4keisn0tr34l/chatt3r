@@ -897,7 +897,14 @@ async fn chat(
 }
 
 #[cfg(target_os = "linux")]
-fn retryable_direct_startup(error: &std::io::Error) -> bool {
+fn retryable_direct_startup(error: &std::io::Error, previously_connected: bool) -> bool {
+    // Linux bt_to_errno also uses ENOSYS for unmapped Bluetooth statuses.
+    // Once this same setup has succeeded, do not mistake that reconnect
+    // failure for proof of permanently missing syscall/adapter support.
+    // Cold startup still fails closed, and all other Unsupported errors stay fatal.
+    if previously_connected && linux_att::setup_errno(error) == Some(libc::ENOSYS) {
+        return true;
+    }
     !matches!(
         error.kind(),
         std::io::ErrorKind::PermissionDenied
@@ -905,7 +912,10 @@ fn retryable_direct_startup(error: &std::io::Error) -> bool {
             | std::io::ErrorKind::InvalidData
             | std::io::ErrorKind::Unsupported
             | std::io::ErrorKind::AddrNotAvailable
-    ) && !matches!(error.raw_os_error(), Some(libc::ENODEV | libc::ENETDOWN))
+    ) && !matches!(
+        linux_att::setup_errno(error),
+        Some(libc::ENODEV | libc::ENETDOWN | libc::EPROTONOSUPPORT)
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -937,6 +947,7 @@ async fn connect_direct(
     wait: bool,
     debug: bool,
     receive_files: bool,
+    previously_connected: bool,
 ) -> Result<Option<std::sync::Arc<linux_att::DirectAtt>>> {
     if wait {
         println!("Waiting for the known phone's BitChat service… open the app when ready; ctrl-c cancels.");
@@ -953,7 +964,7 @@ async fn connect_direct(
         };
         match result {
             Ok(link) => return Ok(Some(link)),
-            Err(error) if wait && retryable_direct_startup(&error) => {
+            Err(error) if wait && retryable_direct_startup(&error, previously_connected) => {
                 let pause = direct_retry_delay(attempt);
                 if debug {
                     eprintln!(
@@ -1032,6 +1043,7 @@ async fn main() -> Result<()> {
                 options.wait_for_peer,
                 options.debug,
                 options.receive_files.is_some(),
+                recovery_attempt > 0,
             )
             .await?
             else {
@@ -1424,7 +1436,10 @@ mod tests {
             ErrorKind::ConnectionRefused,
             ErrorKind::ConnectionReset,
         ] {
-            assert!(retryable_direct_startup(&IoError::from(kind)), "{kind:?}");
+            assert!(
+                retryable_direct_startup(&IoError::from(kind), false),
+                "{kind:?}"
+            );
         }
         for kind in [
             ErrorKind::PermissionDenied,
@@ -1432,15 +1447,56 @@ mod tests {
             ErrorKind::InvalidData,
             ErrorKind::Unsupported,
         ] {
-            assert!(!retryable_direct_startup(&IoError::from(kind)), "{kind:?}");
+            assert!(
+                !retryable_direct_startup(&IoError::from(kind), false),
+                "{kind:?}"
+            );
         }
-        assert!(!retryable_direct_startup(&IoError::from_raw_os_error(
-            libc::ENODEV
-        )));
+        assert!(!retryable_direct_startup(
+            &IoError::from_raw_os_error(libc::ENODEV),
+            false
+        ));
         assert_eq!(
             [1, 2, 3, 4, 50].map(direct_retry_delay),
             [5, 10, 20, 30, 30].map(Duration::from_secs)
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reconnect_survives_reported_enosys_without_hiding_unsupported_startup() {
+        use std::io::{Error as IoError, ErrorKind};
+        // Hardware sequence: verified link -> notification EOF -> failed new
+        // setup with OS error 38. Both raw and contextual forms must recover.
+        for error in [
+            IoError::from_raw_os_error(libc::ENOSYS),
+            linux_att::socket_setup_error(
+                "connection completion",
+                IoError::from_raw_os_error(libc::ENOSYS),
+            ),
+        ] {
+            assert!(!retryable_direct_startup(&error, false));
+            assert!(retryable_direct_startup(&error, true));
+        }
+        for code in [
+            libc::EACCES,
+            libc::EINVAL,
+            libc::ENODEV,
+            libc::ENETDOWN,
+            libc::EOPNOTSUPP,
+            libc::EPROTONOSUPPORT,
+        ] {
+            let error = linux_att::socket_setup_error("connect", IoError::from_raw_os_error(code));
+            assert!(!retryable_direct_startup(&error, true), "{code}");
+        }
+        assert!(!retryable_direct_startup(
+            &IoError::from(ErrorKind::InvalidData),
+            true
+        ));
+        let lost: Result<()> = Err(link_failure("notification stream ended"));
+        assert!(retry_direct_session(true, &lost));
+        assert!(!retry_direct_session(false, &lost));
+        assert!(!retry_direct_session(true, &Ok(())));
     }
 
     #[test]

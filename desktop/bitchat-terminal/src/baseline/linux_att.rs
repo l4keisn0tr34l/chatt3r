@@ -31,6 +31,38 @@ fn invalid(text: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, text)
 }
 
+#[derive(Debug)]
+struct SocketSetupError {
+    stage: &'static str,
+    source: io::Error,
+}
+
+impl std::fmt::Display for SocketSetupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LE ATT {}: {}", self.stage, self.source)
+    }
+}
+
+impl std::error::Error for SocketSetupError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+pub(super) fn socket_setup_error(stage: &'static str, source: io::Error) -> io::Error {
+    io::Error::new(source.kind(), SocketSetupError { stage, source })
+}
+
+pub fn setup_errno(error: &io::Error) -> Option<i32> {
+    error.raw_os_error().or_else(|| {
+        error
+            .get_ref()?
+            .downcast_ref::<SocketSetupError>()?
+            .source
+            .raw_os_error()
+    })
+}
+
 fn le16(bytes: &[u8]) -> io::Result<u16> {
     if bytes.len() < 2 {
         return Err(invalid("short ATT handle"));
@@ -380,7 +412,10 @@ async fn connect_socket(address: [u8; 6]) -> io::Result<AsyncFd<OwnedFd>> {
         )
     };
     if raw < 0 {
-        return Err(io::Error::last_os_error());
+        return Err(socket_setup_error(
+            "socket creation",
+            io::Error::last_os_error(),
+        ));
     }
     let fd = unsafe { OwnedFd::from_raw_fd(raw) };
     let local = L2Addr {
@@ -409,9 +444,10 @@ async fn connect_socket(address: [u8; 6]) -> io::Result<AsyncFd<OwnedFd>> {
         )
     } < 0
     {
-        return Err(io::Error::last_os_error());
+        return Err(socket_setup_error("local bind", io::Error::last_os_error()));
     }
-    let socket = AsyncFd::new(fd)?;
+    let socket =
+        AsyncFd::new(fd).map_err(|error| socket_setup_error("readiness registration", error))?;
     let result = unsafe {
         libc::connect(
             socket.get_ref().as_raw_fd(),
@@ -419,10 +455,16 @@ async fn connect_socket(address: [u8; 6]) -> io::Result<AsyncFd<OwnedFd>> {
             size_of::<L2Addr>() as _,
         )
     };
-    if result < 0 && io::Error::last_os_error().raw_os_error() != Some(libc::EINPROGRESS) {
-        return Err(io::Error::last_os_error());
+    if result < 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINPROGRESS) {
+            return Err(socket_setup_error("connect", error));
+        }
     }
-    let mut guard = socket.writable().await?;
+    let mut guard = socket
+        .writable()
+        .await
+        .map_err(|error| socket_setup_error("connect readiness", error))?;
     guard.clear_ready();
     let mut error = 0;
     let mut len = size_of::<libc::c_int>() as libc::socklen_t;
@@ -436,10 +478,16 @@ async fn connect_socket(address: [u8; 6]) -> io::Result<AsyncFd<OwnedFd>> {
         )
     } < 0
     {
-        return Err(io::Error::last_os_error());
+        return Err(socket_setup_error(
+            "connection status query",
+            io::Error::last_os_error(),
+        ));
     }
     if error != 0 {
-        return Err(io::Error::from_raw_os_error(error));
+        return Err(socket_setup_error(
+            "connection completion",
+            io::Error::from_raw_os_error(error),
+        ));
     }
     Ok(socket)
 }
@@ -501,6 +549,21 @@ async fn read_packet(socket: &AsyncFd<OwnedFd>) -> io::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn connection_failure_keeps_stage_kind_and_underlying_errno() {
+        let error = socket_setup_error(
+            "connection completion",
+            io::Error::from_raw_os_error(libc::ENOSYS),
+        );
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+        assert_eq!(setup_errno(&error), Some(libc::ENOSYS));
+        assert!(error.to_string().contains("connection completion"));
+        assert!(error.to_string().contains("os error 38"));
+        assert_eq!(
+            setup_errno(&io::Error::from_raw_os_error(libc::ENODEV)),
+            Some(libc::ENODEV)
+        );
+    }
     #[test]
     fn mtu_exchange_preserves_text_default_and_reports_actual_file_capability() {
         assert_eq!(

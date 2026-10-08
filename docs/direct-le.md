@@ -64,9 +64,20 @@ remain fatal, and ordinary BlueZ/Windows sessions retain their existing exit
 behavior. codec, compression, signing, discovery filters, roles and MTUs were
 not changed. this recovery loop is chatt3r work, not an upstream guarantee.
 
-59 unit tests, strict Linux/Windows checks, launcher smoke and six PTY cases
+the first app-close hardware check on 2026-10-09 reached this recovery loop,
+then exited on OS error 38 during the new setup. `retryable_direct_startup`
+had treated its `Unsupported` kind as permanently fatal. `main` now passes
+whether this process previously established the known-phone link, permitting
+only post-success `ENOSYS` retries in wait mode. cold startup and other
+permanent errors still fail. `linux_att.rs:socket_setup_error` names each
+socket setup stage; `setup_errno` retains the original errno for classification.
+Linux can map unknown Bluetooth statuses to `ENOSYS`, but the observed
+controller status/stage was not captured. see [the failure and retest](reconnect.md#known-phone-recovery-device-checkpoint).
+
+61 unit tests, strict Linux/Windows checks, launcher smoke and six PTY cases
 pass. fault injection checks interrupted announcement writes and retry
-classification; receiver tests check fresh-key requirements, duplicate history
+classification, including the reported raw/contextual OS error 38 and fatal
+setup errors; receiver tests check fresh-key requirements, duplicate history
 and file quota; PTY tests check stream closure followed by fresh-session
 Ctrl-C/Ctrl-D exits and restored terminal modes. these tests do not exercise
 the phone radio or prove its app can reopen and accept the new link. see the

@@ -8,7 +8,11 @@ what has shipped. prefer observed results and current code over old roadmaps.
 
 - known-phone direct LE with `--wait-for-peer` now returns to waiting after
   a write failure, disconnect or notification stream closure. this is
-  software-tested only; the next physical gate is app close/reopen and fresh
+  software-tested; the first app-close hardware check reached recovery but
+  exited on setup OS error 38. the candidate retries this errno only after
+  a previously successful direct-LE setup and adds socket-stage diagnostics;
+  fatal cold-start/configuration/unsupported-protocol guards remain.
+  the next physical gate is app close/reopen and fresh
   short text both ways without restarting the laptop client. see
   `docs/reconnect.md`. preserve per-run file quota and duplicate history,
   require fresh announced keys, discard partial assemblies, and never replay

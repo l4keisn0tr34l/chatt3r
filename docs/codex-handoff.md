@@ -5,9 +5,15 @@ for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 
 current software checkpoint: **known-phone connection recovery** with direct
 LE `--wait-for-peer`. failed writes, disconnects and notification closure now
-return to waiting for the same phone. 59 unit tests, strict Linux/Windows
+return to waiting for the same phone. 61 unit tests, strict Linux/Windows
 checks, launcher smoke and six PTY cases pass; the binary is rebuilt.
-**physical reconnect is unconfirmed**. the next gate is
+the first physical app-close check on 2026-10-09 detected notification closure
+and started recovery, then **exited on OS error 38** during new setup.
+the candidate now retries this errno only after a previously successful
+direct-LE setup, retaining fatal cold-start/configuration/unsupported-protocol
+guards. socket errors include the setup stage and underlying errno; no
+protocol or discovery/role changes. **physical reconnect is unconfirmed**.
+the next gate is a repeat of
 [app close/reopen and short text both ways](reconnect.md#known-phone-recovery-device-checkpoint)
 without restarting the laptop. only fresh presence is sent; duplicate history
 and per-run file quota persist, while keys and partial assemblies reset.
@@ -167,10 +173,10 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 
 ### next work, in order
 
-the current stopping point is the **completed phone longer-text checkpoint**
-in [long-text-checkpoint.md](long-text-checkpoint.md). the remaining known-phone
-recovery hardware check is in
-[reconnect.md](reconnect.md#known-phone-recovery-device-checkpoint). 59 unit tests, strict
+the current stopping point is the **known-phone recovery hardware retest**
+after the 2026-10-09 OS-error-38 exit. preserve the completed phone longer-text
+evidence in [long-text-checkpoint.md](long-text-checkpoint.md). the retest is in
+[reconnect.md](reconnect.md#known-phone-recovery-device-checkpoint). 61 unit tests, strict
 Linux/Windows checks, launcher and six PTY cases pass; `--bin chatt3r` is
 rebuilt. phone numbered-ASCII longer text is physically confirmed; reconnect
 and native Windows longer text remain unverified. do not start wider discovery
