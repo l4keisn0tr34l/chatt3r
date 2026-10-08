@@ -26,7 +26,7 @@ use btleplug::platform::{Adapter, Manager, Peripheral};
 use discovery::{Evidence, FreshScan};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use futures::{stream::BoxStream, StreamExt};
-use protocol::{Packet, Reassembler, ANNOUNCE, FRAGMENT, LEAVE, MAX_PAYLOAD, MESSAGE};
+use protocol::{Packet, Reassembler, ANNOUNCE, FRAGMENT, LEAVE, MAX_TEXT_BYTES, MESSAGE};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -92,7 +92,7 @@ Usage: chatt3r --write-limit <bytes> [--name <nickname>] [--debug]\n\
        chatt3r --direct-le <phone-address> [--wait-for-peer] [--debug] (linux LE-only link)\n\
 --write-limit: operator-provided characteristic value limit, NOT measured MTU (36..512).\n\
 --receive-files <existing-dir>: opt-in small public file receive on Linux phone link; saves .bin only.\n\
-Short public messages only (99 UTF-8 bytes). No confidentiality, DMs, file sending or relaying.\n\
+Public text up to 1024 UTF-8 bytes (long text software-tested; phone retest pending). No confidentiality, DMs, file sending or relaying.\n\
 For phone mode keep stock BitChat open on iPhone in its public room; desktop mode needs Windows --host.\n\
 Commands: /peers, /announce, /quit. Ctrl-C / Ctrl-D exit. Run without sudo first.\n\
 Quiet by default; --debug shows BLE diagnostics. Nicknames are colored per peer.\n\
@@ -333,9 +333,10 @@ async fn send(
 ) -> Result<()> {
     let frames = protocol::frames(packet, limit)?;
     output.diagnostic(&format!(
-        "[tx] type=0x{:02x} payload_bytes={} frames={} configured_limit={limit}",
+        "[tx] type=0x{:02x} wire_payload_bytes={} compressed={} frames={} configured_limit={limit}",
         packet.kind,
         packet.payload.len(),
+        packet.is_compressed(),
         frames.len()
     ))?;
     for frame in frames {
@@ -425,12 +426,17 @@ impl Receiver {
             .peers
             .get(&packet.sender)
             .ok_or("unknown signing key; wait for peer announcement")?;
-        packet.verify(key)?;
+        let payload = packet.verified_payload(key)?;
+        let text = if packet.kind == MESSAGE {
+            Some(std::str::from_utf8(&payload)?)
+        } else {
+            None
+        };
         let mut digest = Sha256::new();
         digest.update(packet.sender);
         digest.update(packet.timestamp.to_be_bytes());
         digest.update([packet.kind]);
-        digest.update(&packet.payload);
+        digest.update(&payload);
         let digest: [u8; 32] = digest.finalize().into();
         if !self.seen.insert(digest) {
             return Ok(());
@@ -440,11 +446,14 @@ impl Receiver {
             self.seen.remove(&self.order.pop_front().unwrap());
         }
         match packet.kind {
-            MESSAGE => output.line(&output.message(
-                name,
-                &packet.sender,
-                std::str::from_utf8(&packet.payload)?,
-            ))?,
+            MESSAGE => {
+                output.diagnostic(&format!(
+                    "[rx-text] payload_bytes={} compressed={}",
+                    payload.len(),
+                    packet.is_compressed()
+                ))?;
+                output.line(&output.message(name, &packet.sender, text.unwrap()))?;
+            }
             LEAVE => {
                 output.line(&format!("{} left", output.peer(name, &packet.sender)))?;
                 self.peers.remove(&packet.sender);
@@ -734,7 +743,7 @@ async fn chat(
         }
     }
     println!(
-        "Connected as {}. Public chat — not encrypted; max {MAX_PAYLOAD} UTF-8 bytes.",
+        "Connected as {}. Public chat — not encrypted; max {MAX_TEXT_BYTES} UTF-8 bytes.",
         display(&options.name)
     );
     let mut receiver = Receiver::new(local);
@@ -794,7 +803,7 @@ async fn chat(
                     _ => {}
                 }
                 if receiver.peers.is_empty() { output.line("Waiting for a peer announcement. Check the other peer is running, then resend.")?; continue; }
-                if line.len() > MAX_PAYLOAD { output.line(&format!("Limit: {MAX_PAYLOAD} UTF-8 bytes; longer/compressed text not implemented."))?; continue; }
+                if line.len() > MAX_TEXT_BYTES { output.line(&format!("Limit: {MAX_TEXT_BYTES} UTF-8 bytes; shorten the message."))?; continue; }
                 let sent_text = display(&line);
                 let mut packet = Packet::new(MESSAGE, local, now_ms(), line.into_bytes());
                 packet.sign(&signing)?;
@@ -1368,6 +1377,103 @@ mod tests {
         assert!(a.receive(&unsigned.encode().unwrap(), &output).is_err());
         assert_eq!(a.seen.len(), 1);
         assert_eq!(b.seen.len(), 1);
+    }
+
+    #[test]
+    fn long_text_reaches_both_receivers_with_file_opt_in_and_mixed_fragment_compression() {
+        use bitchat_poc::text_payload;
+        let output = ui::Output::plain(false);
+        let keys = [
+            SigningKey::from_bytes(&[3; 32]),
+            SigningKey::from_bytes(&[4; 32]),
+        ];
+        let noise = [[7; 32], [8; 32]];
+        let ids = noise.map(|key| protocol::peer_id(&key));
+        let mut receivers = [Receiver::new(ids[0]), Receiver::new(ids[1])];
+        // Text must behave identically when the separate file receiver is on.
+        // This existing directory is configured only; this test saves no files.
+        receivers[1].incoming_files = Some(IncomingFiles::new(&std::env::temp_dir()).unwrap());
+        for sender in 0..2 {
+            let mut announce = Packet::new(
+                ANNOUNCE,
+                ids[sender],
+                now_ms(),
+                protocol::announcement("test", &noise[sender], &keys[sender].verifying_key())
+                    .unwrap(),
+            );
+            announce.sign(&keys[sender]).unwrap();
+            for wire in protocol::frames(&announce, 128).unwrap() {
+                receivers[1 - sender].receive(&wire, &output).unwrap();
+            }
+        }
+        let fixtures: serde_json::Value =
+            serde_json::from_str(include_str!("../../test-vectors/public-text-long.json")).unwrap();
+        let diverse = hex::decode(
+            fixtures["cases"].as_array().unwrap().last().unwrap()["decoded_hex"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        let payloads = [
+            vec![b'a'; 100],
+            vec![b'b'; 256],
+            "🙂".repeat(256).into_bytes(),
+            diverse,
+        ];
+        let mut compressed_fragments = 0;
+        for (index, payload) in payloads.iter().enumerate() {
+            for sender in 0..2 {
+                let timestamp = now_ms() + index as u64;
+                let mut text = Packet::new(MESSAGE, ids[sender], timestamp, payload.clone());
+                text.sign(&keys[sender]).unwrap();
+                let parts = protocol::frames(&text, 128).unwrap();
+                let mut wire_parts = Vec::new();
+                for bytes in parts {
+                    let fragment = Packet::decode(&bytes).unwrap();
+                    let compressed = if fragment.kind == FRAGMENT {
+                        text_payload::compress_text(&fragment.payload, 1).unwrap()
+                    } else {
+                        None
+                    };
+                    wire_parts.push(if let Some(payload) = compressed {
+                        // Independently wrap unsigned v1 text fragments as a
+                        // stock-style compressed notification, alongside plain
+                        // fragments. The complete text is still signed.
+                        compressed_fragments += 1;
+                        let mut wire = bytes[..11].to_vec();
+                        wire.push(4);
+                        wire.extend((payload.len() as u16).to_be_bytes());
+                        wire.extend(fragment.sender);
+                        wire.extend(payload);
+                        wire
+                    } else {
+                        bytes
+                    });
+                }
+                let receiver = &mut receivers[1 - sender];
+                for _ in 0..2 {
+                    // Exact duplicate deliveries produce one accepted message.
+                    for wire in &wire_parts {
+                        receiver.receive(wire, &output).unwrap();
+                    }
+                }
+                let mut digest = Sha256::new();
+                digest.update(ids[sender]);
+                digest.update(timestamp.to_be_bytes());
+                digest.update([MESSAGE]);
+                digest.update(payload);
+                let expected: [u8; 32] = digest.finalize().into();
+                assert!(receiver.seen.contains(&expected));
+                assert_eq!(receiver.seen.len(), index + 1);
+            }
+        }
+        assert!(compressed_fragments > 0);
+        let mut invalid = Packet::new(MESSAGE, ids[0], now_ms() + 10, vec![0xff]);
+        invalid.sign(&keys[0]).unwrap();
+        assert!(receivers[1]
+            .receive(&invalid.encode().unwrap(), &output)
+            .is_err());
+        assert_eq!(receivers[1].seen.len(), payloads.len());
     }
 
     #[cfg(target_os = "linux")]

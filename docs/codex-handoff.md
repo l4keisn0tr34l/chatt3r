@@ -1,7 +1,15 @@
 # codex handoff: chatt3r
 
-for a copy-paste codex-cli prompt and the next physical file checkpoint, see
+for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
+
+current software milestone: **bounded public text up to 1,024 UTF-8 bytes**,
+with compression, signing and receiver integration tests passing. longer
+text has **not been tested on the phone or native Windows radio**. the next
+checkpoint is [long-text-checkpoint.md](long-text-checkpoint.md): first
+regress short text, then verify 100/256/1,024-byte text on both screens.
+this session stops there. startup, discovery and BLE roles are unchanged;
+zero-argument connectivity is deferred to a separate task.
 
 current snapshot: **user-confirmed two-way public text over BLE between the
 Linux laptop and Windows PC**, first on the stock service with iphone Bluetooth
@@ -37,7 +45,8 @@ or full live-session reconnect are implemented.
 | stock iphone → linux public image | four valid JPEG saves: 3,485 bytes twice with identical hashes (252×448), plus 39,907 and 44,478 bytes (336×448); all fully decode locally. first image visually confirmed by user. repeated receive and larger content observed; original-byte comparison, encoded frame sizes and compression flags unavailable |
 
 public text is **not encrypted**. signing identities are ephemeral for each
-run, not trusted device pairing. maximum text is **99 UTF-8 bytes**. the
+run, not trusted device pairing. the software text cap is **1,024 UTF-8
+bytes**; previous radio-confirmed text was the **<=99-byte subset**. the
 launcher's `128`-byte frame limit is operator-selected, **not a measured MTU**.
 a successful GATT write is not an application delivery receipt. never replay
 an ambiguous message after link failure.
@@ -69,7 +78,14 @@ linux laptop (btleplug fresh scan + connect + subscribe)
   subscriber list gets a grace period; a different or additional subscriber
   causes the current host to fail closed.
 - `desktop/bitchat-terminal/src/baseline/protocol.rs`: upstream-compatible
-  wire format, signing and fragmentation. `baseline/linux_att.rs`: working
+  wire format, signing and fragmentation. the new pure `baseline/text_payload.rs`
+  is exported by `src/lib.rs` and implements bounded text raw DEFLATE. outgoing
+  public messages follow the pinned compression threshold/diversity gate;
+  incoming signatures authenticate exact wire bytes before text inflation.
+  `Receiver::receive` checks UTF-8 and deduplicates decoded content. control
+  packets keep the old short subset; see `long-text-checkpoint.md` for exact
+  paths, source attribution, bounds and compression identity limitations.
+  `baseline/linux_att.rs`: working
   separate Linux-only raw-ATT workaround for the known iphone; **don't
   regress** it to change the Windows host. `baseline/discovery.rs` rejects
   BlueZ cached UUIDs until there is fresh scan evidence.
@@ -131,6 +147,12 @@ a bad 128-byte limit. `chatt3r.rs` now labels that error as a disappeared
 characteristic rather than suggesting MTU. do not auto-replay messages.
 
 ### next work, in order
+
+the current session's stopping point is the **prepared longer-text hardware
+checkpoint**, not the deferred connectivity audit. use
+[long-text-checkpoint.md](long-text-checkpoint.md) before the backlog below.
+57 Linux unit tests, strict Linux/Windows checks, launcher and four PTY cases
+pass; `--bin chatt3r` is rebuilt. all longer-text evidence is software-only.
 
 1. **retain the two-way phone-on confirmation and, when practical, collect
    simultaneous console evidence in a repeat test** on the same pair.

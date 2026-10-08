@@ -19,7 +19,7 @@ JPEG saves have been verified locally, including a repeat and two larger images.
 | quiet chat, colored nicknames, editable input | implemented; terminal-tested |
 | startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait (closed-app wait observed, reopen transition pending) |
 | known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
-| longer text / compression | not supported yet; max 99 utf-8 bytes |
+| longer text / compression | **software-tested up to 1,024 UTF-8 bytes** with bounded public-text compression/signing; iPhone and native Windows radio validation pending. previously confirmed text remains the short subset |
 | public file receive | opt-in `--receive-files <existing-dir>` on Linux phone link; **four iPhone JPEG saves verified locally**: 3,485 bytes twice with identical hashes, plus 39,907 and 44,478 bytes; all fully decode. user visually confirmed the first image; original-byte/hash comparison unavailable. earlier MTU 517/value 514 and full 504-byte fragments were confirmed; the earlier 46-part image and compressed-fragment behavior still need specific radio evidence. no sending, private files, or general media guarantee |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
@@ -160,18 +160,20 @@ adapter supports it. another link may need a different value:
 chatt3r --write-limit 64 --debug
 ```
 
-### the 99-byte text limit
+### the 1,024-byte text candidate
 
-messages currently have to fit in **99 utf-8 bytes**. plain english characters
+messages currently have to fit in **1,024 utf-8 bytes**. plain english characters
 usually use one byte; emoji and other unicode characters may use more.
 
 - longer outgoing messages are rejected, not truncated.
 - longer incoming messages are rejected; `--debug` shows the reason.
 - changing the frame limit won't raise this text limit.
 
-this temporary restriction avoids the upstream compression threshold until we
-implement compatible compression and signature handling. a 500-character or
-500-byte message won't work yet.
+the longer-text path is **software-tested; physical iPhone/Windows validation
+is pending**. below 100 bytes the previous uncompressed wire/signing format
+is preserved. larger public texts can use bounded raw-DEFLATE compression;
+the phone's canonical recompression/signature behavior still needs the
+prepared [device checkpoint](docs/long-text-checkpoint.md).
 
 ## if it stops talking
 

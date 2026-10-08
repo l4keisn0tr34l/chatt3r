@@ -67,8 +67,11 @@ in chat, wait for `connected and subscribed` and a peer announcement. send a
 short non-private `hi` both ways; check **both screens**. a successful windows
 GATT write is not an iphone delivery receipt. `/peers`, `/quit`, ctrl-c and
 ctrl-d are the supported exit/status shortcuts. `--debug` can include public
-text and peer ids; review logs before sharing. maximum text is **99 utf-8
-bytes**, not 99 characters; no files, dms or message encryption yet.
+text and peer ids; review logs before sharing. the software text cap is
+**1,024 utf-8 bytes**; previously confirmed text was the <=99-byte subset.
+longer text needs native PC radio validation at
+[long-text-checkpoint.md](long-text-checkpoint.md). no file sending, dms or
+message encryption yet.
 
 **important:** the successful linux `--direct-le <phone-address>` workaround
 uses a linux-only l2cap/att socket. it **does not run on windows**. if windows

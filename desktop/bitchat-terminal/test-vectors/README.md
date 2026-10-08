@@ -17,6 +17,15 @@ packet has TTL 7 and a signature, with no trailing padding.
 Future Swift/Kotlin tests can consume the same JSON. The timestamp is an
 artificial layout fixture and intentionally fails live freshness checks.
 
+`public-text-long.json` adds independent Python zlib/Ed25519 cases for
+99/100/256/1,024-byte text, v1/v2, Unicode and high-diversity uncompressed
+text. `generate-public-text-long.py` prints the deterministic fixture; its
+seed is public test material. `cargo test --bin chatt3r` checks received
+preimages/signatures, verified payloads and fragmented local round trips.
+these are not Swift captures or proof that Apple recompresses to the same
+bytes as Rust. stock-phone and native Windows radio tests are pending in
+`docs/long-text-checkpoint.md`.
+
 `file-payload-v2.json` specifies only the **inner** canonical type-`0x22`
 file TLV for a small octet-stream file. It was independently laid out using
 Python standard-library big-endian integers following the pinned Unlicensed

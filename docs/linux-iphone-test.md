@@ -75,7 +75,9 @@ Each peer gets a consistent nickname color and your messages are cyan. Editable
 history. `NO_COLOR=1` disables colors; piped output stays plain. `/quit` and restart
 to load a newly built binary. Ignored/malformed frame diagnostics require `--debug`.
 
-Messages are limited to **99 UTF-8 bytes**, not 99 characters. Public plaintext
+The software candidate allows **1,024 UTF-8 bytes**; earlier radio-confirmed
+text was the <=99-byte subset. Longer-text radio validation is pending at
+[long-text-checkpoint.md](long-text-checkpoint.md). Public plaintext
 is signed but not confidential, not Noise-authenticated. Do not send secrets.
 The opt-in **small public file receiver** has four verified iPhone JPEG saves:
 3,485 bytes twice (identical hashes), plus 39,907 and 44,478 bytes. All fully

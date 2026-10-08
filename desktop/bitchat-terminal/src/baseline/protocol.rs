@@ -1,16 +1,20 @@
-//! Short public-text subset of BitChat, pinned in docs/upstream-analysis.md.
-//! No legacy crypto, compression, Noise, file transfer, or mesh forwarding.
+//! Bounded public-text subset of BitChat, pinned in docs/upstream-analysis.md.
+//! No legacy crypto, Noise, file transfer, or mesh forwarding.
+use bitchat_poc::text_payload;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+pub use text_payload::MAX_TEXT_BYTES;
 
 pub const ANNOUNCE: u8 = 0x01;
 pub const MESSAGE: u8 = 0x02;
 pub const LEAVE: u8 = 0x03;
 pub const FRAGMENT: u8 = 0x20;
-pub const MAX_PAYLOAD: usize = 99; // Constants.swift sets compressionThresholdBytes = 100.
+const MAX_CONTROL_PAYLOAD: usize = 99; // Preserve the proven uncompressed announcement/leave subset.
 const MAX_FRAME: usize = 16 * 1024;
+const MAX_TEXT_FRAME: usize = 16 + 8 + 8 + 4 + MAX_TEXT_BYTES + 64 + 255;
 
 /// Metadata-only frame shape for diagnosing rejected notifications. Never
 /// include sender, recipient, fragment ID, content or a signature in logs.
@@ -61,6 +65,9 @@ pub struct Packet {
     pub recipient: Option<[u8; 8]>,
     pub payload: Vec<u8>,
     pub signature: Option<[u8; 64]>,
+    // For signed text, payload holds the exact size-prefixed wire bytes until
+    // verification. Do not recompress an incoming signature preimage.
+    compressed: bool,
 }
 
 impl Packet {
@@ -74,6 +81,7 @@ impl Packet {
             recipient: None,
             payload,
             signature: None,
+            compressed: false,
         }
     }
 
@@ -81,9 +89,14 @@ impl Packet {
         if !matches!(self.version, 1 | 2) || self.payload.len() > MAX_FRAME {
             return Err("unsupported version or oversized payload");
         }
+        self.check_text_bounds()?;
         let mut bytes = vec![self.version, self.kind, self.ttl];
         bytes.extend(self.timestamp.to_be_bytes());
-        bytes.push(u8::from(self.recipient.is_some()) | (u8::from(self.signature.is_some()) << 1));
+        bytes.push(
+            u8::from(self.recipient.is_some())
+                | (u8::from(self.signature.is_some()) << 1)
+                | (u8::from(self.compressed) << 2),
+        );
         if self.version == 1 {
             bytes.extend((self.payload.len() as u16).to_be_bytes());
         } else {
@@ -113,9 +126,11 @@ impl Packet {
             return Err("truncated sender");
         }
         let flags = bytes[11];
-        // A deliberately narrow harness: don't silently misparse compressed or routed frames.
-        if flags & !3 != 0 {
-            return Err("compressed/routed/extended flags unsupported in baseline");
+        if flags & !7 != 0 {
+            return Err("routed/extended flags unsupported in baseline");
+        }
+        if flags & 4 != 0 && !matches!(bytes[1], MESSAGE | FRAGMENT) {
+            return Err("compressed control/media unsupported in text path");
         }
         let length = if header == 14 {
             u16::from_be_bytes(bytes[12..14].try_into().unwrap()) as usize
@@ -124,6 +139,14 @@ impl Packet {
         };
         if length > MAX_FRAME {
             return Err("declared payload exceeds baseline cap");
+        }
+        if bytes[1] == MESSAGE
+            && (bytes.len() > MAX_TEXT_FRAME || (flags & 4 == 0 && length > MAX_TEXT_BYTES))
+        {
+            return Err("public text frame exceeds budget");
+        }
+        if flags & 4 != 0 && length > MAX_TEXT_BYTES + if header == 14 { 2 } else { 4 } {
+            return Err("compressed text payload exceeds budget");
         }
         let payload_start = header + 8 + if flags & 1 != 0 { 8 } else { 0 };
         let end = payload_start + length;
@@ -136,7 +159,7 @@ impl Packet {
         } else {
             None
         };
-        Ok(Self {
+        let mut packet = Self {
             version: bytes[0],
             kind: bytes[1],
             ttl: bytes[2],
@@ -149,12 +172,38 @@ impl Packet {
             } else {
                 None
             },
-        }) // Upstream accepts trailing padding; length fields delimit the packet.
+            compressed: flags & 4 != 0,
+        };
+        packet.check_text_bounds()?;
+        if packet.kind == FRAGMENT && packet.compressed {
+            if packet.signature.is_some() {
+                return Err("signed compressed text fragment unsupported");
+            }
+            packet.payload = text_payload::inflate_text_fragment(&packet.payload, packet.version)?;
+            packet.compressed = false;
+        }
+        Ok(packet) // Upstream accepts trailing padding; length fields delimit the packet.
+    }
+
+    fn check_text_bounds(&self) -> Result<(), &'static str> {
+        if self.kind == MESSAGE {
+            if self.compressed {
+                text_payload::original_size(&self.payload, self.version)?;
+            } else if self.payload.len() > MAX_TEXT_BYTES {
+                return Err("public text exceeds 1024-byte budget");
+            }
+        }
+        Ok(())
+    }
+
+    pub fn is_compressed(&self) -> bool {
+        self.compressed
     }
 
     fn signing_bytes(&self) -> Result<Vec<u8>, &'static str> {
-        if self.payload.len() > MAX_PAYLOAD {
-            return Err("baseline only signs short uncompressed payloads");
+        self.check_text_bounds()?;
+        if self.kind != MESSAGE && (self.compressed || self.payload.len() > MAX_CONTROL_PAYLOAD) {
+            return Err("baseline only signs short uncompressed control payloads");
         }
         let mut unsigned = self.clone();
         unsigned.ttl = 0;
@@ -174,6 +223,12 @@ impl Packet {
     }
 
     pub fn sign(&mut self, key: &SigningKey) -> Result<(), &'static str> {
+        if self.kind == MESSAGE && !self.compressed {
+            if let Some(wire) = text_payload::compress_text(&self.payload, self.version)? {
+                self.payload = wire;
+                self.compressed = true;
+            }
+        }
         self.signature = Some(key.sign(&self.signing_bytes()?).to_bytes());
         Ok(())
     }
@@ -182,6 +237,21 @@ impl Packet {
         let signature = Signature::from_bytes(&self.signature.ok_or("missing signature")?);
         key.verify_strict(&self.signing_bytes()?, &signature)
             .map_err(|_| "invalid signature")
+    }
+
+    /// Authenticate the exact received wire representation before expanding
+    /// signed text. Compressed-byte identity with Apple's encoder is a separate
+    /// outbound interoperability question, requiring a physical phone test.
+    pub fn verified_payload(&self, key: &VerifyingKey) -> Result<Cow<'_, [u8]>, &'static str> {
+        self.verify(key)?;
+        if self.compressed {
+            Ok(Cow::Owned(text_payload::inflate_text(
+                &self.payload,
+                self.version,
+            )?))
+        } else {
+            Ok(Cow::Borrowed(&self.payload))
+        }
     }
 
     pub fn is_broadcast(&self) -> bool {
@@ -211,7 +281,7 @@ pub fn announcement(
 }
 
 pub fn decode_announcement(packet: &Packet) -> Result<(String, VerifyingKey), &'static str> {
-    if packet.payload.len() > MAX_PAYLOAD {
+    if packet.compressed || packet.payload.len() > MAX_CONTROL_PAYLOAD {
         return Err("oversized announcement for baseline");
     }
     let mut nickname = None;
@@ -357,7 +427,12 @@ impl Reassembler {
             }
             return Ok(None);
         }
-        if assembly.bytes + chunk.len() > MAX_FRAME {
+        let cap = if kind == MESSAGE {
+            MAX_TEXT_FRAME
+        } else {
+            MAX_FRAME
+        };
+        if assembly.bytes + chunk.len() > cap {
             self.pending.remove(&key);
             return Err("assembly too large");
         }
@@ -554,16 +629,25 @@ mod tests {
     }
 
     #[test]
-    fn signatures_required_and_short_limit_enforced() {
+    fn signatures_required_text_budget_and_control_limit_enforced() {
         let key = SigningKey::from_bytes(&[0x42; 32]);
         let mut packet = text();
         assert!(packet.verify(&key.verifying_key()).is_err());
-        packet.payload = vec![b'a'; MAX_PAYLOAD];
+        packet.payload = vec![b'a'; MAX_TEXT_BYTES];
         packet.sign(&key).unwrap();
         packet.verify(&key.verifying_key()).unwrap();
-        packet.payload.push(b'a');
-        assert!(packet.sign(&key).is_err());
-        packet.payload = b"hi".to_vec();
+        assert_eq!(
+            packet.verified_payload(&key.verifying_key()).unwrap().len(),
+            MAX_TEXT_BYTES
+        );
+        assert!(
+            Packet::new(MESSAGE, [0x11; 8], 1, vec![b'a'; MAX_TEXT_BYTES + 1])
+                .sign(&key)
+                .is_err()
+        );
+        let mut control = Packet::new(ANNOUNCE, [0x11; 8], 1, vec![b'a'; MAX_CONTROL_PAYLOAD + 1]);
+        assert!(control.sign(&key).is_err());
+        packet = text();
         packet.recipient = Some([0xff; 8]);
         packet.sign(&key).unwrap();
         let mut collector = Reassembler::default();
@@ -578,6 +662,106 @@ mod tests {
         let encoded = packet.encode().unwrap();
         for end in 0..encoded.len() {
             assert!(Packet::decode(&encoded[..end]).is_err());
+        }
+    }
+
+    #[test]
+    fn independent_long_text_wire_signatures_and_bounded_decode() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../test-vectors/public-text-long.json")).unwrap();
+        let public: [u8; 32] = hex::decode(fixture["public_key_hex"].as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let key = VerifyingKey::from_bytes(&public).unwrap();
+        let signing = SigningKey::from_bytes(&[0x42; 32]);
+        for case in fixture["cases"].as_array().unwrap() {
+            let wire = hex::decode(case["wire_hex"].as_str().unwrap()).unwrap();
+            let packet = Packet::decode(&wire).unwrap();
+            assert_eq!(
+                packet.signing_bytes().unwrap(),
+                hex::decode(case["signing_hex"].as_str().unwrap()).unwrap()
+            );
+            let expected = hex::decode(case["decoded_hex"].as_str().unwrap()).unwrap();
+            assert_eq!(&*packet.verified_payload(&key).unwrap(), expected);
+            assert_eq!(
+                packet.is_compressed(),
+                case["compressed"].as_bool().unwrap()
+            );
+            let mut local = Packet::new(MESSAGE, packet.sender, packet.timestamp, expected.clone());
+            local.version = packet.version;
+            local.sign(&signing).unwrap();
+            assert_eq!(local.is_compressed(), packet.is_compressed());
+            for limit in [64, 128, 182] {
+                let mut assembler = Reassembler::default();
+                let parts = frames(&local, limit).unwrap();
+                assert!(parts.iter().all(|part| part.len() <= limit));
+                let mut complete = None;
+                for (i, part) in parts.iter().rev().enumerate() {
+                    let decoded = Packet::decode(part).unwrap();
+                    complete = assembler.accept(decoded.clone()).unwrap().or(complete);
+                    if i + 1 < parts.len() {
+                        assert!(assembler.accept(decoded).unwrap().is_none());
+                    }
+                }
+                let mut received = complete.unwrap();
+                received.ttl = 1;
+                assert_eq!(&*received.verified_payload(&key).unwrap(), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn signed_text_authenticates_before_inflate() {
+        let key = SigningKey::from_bytes(&[0x42; 32]);
+        let mut packet = Packet::new(MESSAGE, [0x11; 8], 1, vec![b'a'; 256]);
+        packet.sign(&key).unwrap();
+        // Keep a bounded size prefix but deliberately replace the DEFLATE
+        // stream. Invalid signatures are checked before malformed inflation.
+        packet.payload.truncate(2);
+        packet.payload.push(0xff);
+        assert_eq!(
+            packet.verified_payload(&key.verifying_key()).unwrap_err(),
+            "invalid signature"
+        );
+        packet.signature = Some(key.sign(&packet.signing_bytes().unwrap()).to_bytes());
+        assert!(packet.verify(&key.verifying_key()).is_ok());
+        assert!(packet.verified_payload(&key.verifying_key()).is_err());
+        let mut unsupported = packet.encode().unwrap();
+        unsupported[11] |= 0x08;
+        assert!(Packet::decode(&unsupported).is_err());
+        unsupported[11] = 0x06;
+        unsupported[1] = ANNOUNCE;
+        assert!(Packet::decode(&unsupported).is_err());
+    }
+
+    #[test]
+    fn compressed_unsigned_fragment_is_bounded_and_text_only() {
+        use flate2::{write::DeflateEncoder, Compression};
+        use std::io::Write;
+        let original = [vec![0x11; 8], vec![0, 0, 0, 2, MESSAGE], vec![b'a'; 469]].concat();
+        let make_wire = |payload: &[u8]| {
+            let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(6));
+            encoder.write_all(payload).unwrap();
+            let compressed = encoder.finish().unwrap();
+            let mut packet = Packet::new(
+                FRAGMENT,
+                [0x11; 8],
+                1,
+                (payload.len() as u16).to_be_bytes().to_vec(),
+            );
+            packet.payload.extend(compressed);
+            packet.compressed = true;
+            packet.encode().unwrap()
+        };
+        let wire = make_wire(&original);
+        assert_eq!(Packet::decode(&wire).unwrap().payload, original);
+        let mut bad_type = original.clone();
+        bad_type[12] = 0x22;
+        assert!(Packet::decode(&make_wire(&bad_type)).is_err());
+        assert!(Packet::decode(&make_wire(&vec![b'a'; 1025])).is_err());
+        for end in 0..wire.len() {
+            assert!(Packet::decode(&wire[..end]).is_err());
         }
     }
 
