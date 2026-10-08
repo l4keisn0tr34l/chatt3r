@@ -51,15 +51,23 @@ iphone advertises mainnet bitchat service
 - `scripts/chatt3r`: supplies the operator's default 128-byte write limit.
   direct le additionally caps frames to negotiated att mtu minus three bytes.
 
-**known-phone recovery data flow:** `send` and `chat` classify transport
+**known-phone recovery data flow:** `send` and `chat_session` classify transport
 failures as `LinkFailure`; only the direct-LE wait-mode loop in `main` handles
-them. the old chat input, notification stream and ATT link are dropped before
-backoff and `connect_direct` establishes a fresh link to the same address.
+them. `main` opens one `Room` before setup; its readline input, draft and
+history survive connection changes. the old notification stream and ATT link
+drop before backoff and `connect_direct` establishes a fresh link to the same address.
 `Receiver::begin_session` clears announced keys and partial text/file
-assemblies, requiring a new signed announcement. the receiver lives for the
+assemblies immediately after link loss, requiring a new signed announcement.
+the receiver lives for the
 process so duplicate history and `IncomingFiles`' 16-save quota survive
 reconnects. only fresh presence is sent; no user-message queue is replayed.
-Ctrl-C also cancels initial/fragmented writes on this path. local errors
+`Room::operation` polls commands during setup, retry delays and writes.
+`/peers` reports current validated peers, including zero while disconnected;
+`/announce` reports waiting without a link, or requests signed presence after
+an active write finishes. text submitted while disconnected or while a write
+is in progress is explicitly rejected, never queued. `/quit`, Ctrl-C and
+Ctrl-D cancel pending work; connected shutdown makes a best-effort LEAVE with
+a one-second deadline. local errors
 remain fatal, and ordinary BlueZ/Windows sessions retain their existing exit
 behavior. codec, compression, signing, discovery filters, roles and MTUs were
 not changed. this recovery loop is chatt3r work, not an upstream guarantee.
@@ -74,12 +82,14 @@ socket setup stage; `setup_errno` retains the original errno for classification.
 Linux can map unknown Bluetooth statuses to `ENOSYS`, but the observed
 controller status/stage was not captured. see [the failure and retest](reconnect.md#known-phone-recovery-device-checkpoint).
 
-61 unit tests, strict Linux/Windows checks, launcher smoke and six PTY cases
+61 unit tests, strict Linux/Windows checks, launcher smoke and nine PTY cases
 pass. fault injection checks interrupted announcement writes and retry
 classification, including the reported raw/contextual OS error 38 and fatal
 setup errors; receiver tests check fresh-key requirements, duplicate history
-and file quota; PTY tests check stream closure followed by fresh-session
-Ctrl-C/Ctrl-D exits and restored terminal modes. these tests do not exercise
+and file quota; PTY tests check commands before connection and after loss,
+draft preservation, fresh peer state on return, no text replay, cancellation
+of a pending write by all three quit methods, and restored terminal modes.
+the transport is simulated in these terminal tests. these tests do not exercise
 the phone radio or prove its app can reopen and accept the new link. see the
 [device checkpoint](reconnect.md#known-phone-recovery-device-checkpoint).
 

@@ -19,6 +19,7 @@ JPEG saves have been verified locally, including a repeat and two larger images.
 | quiet chat, colored nicknames, editable input | implemented; terminal-tested |
 | startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait. one missing-service retry followed by connection observed; established-link reconnect pending |
 | known-phone connection recovery | `--direct-le` with `--wait-for-peer` returns to waiting after a failed write or lost link. first app-close test exited on setup OS error 38; post-success retry correction is software-tested, physical close/reopen retest pending. no user-message replay |
+| persistent known-phone room | one terminal through setup, waiting and link changes; `/peers`, `/announce`, `/quit` stay usable. draft/history persist; text while waiting or during a write is explicitly rejected. PTY-tested with simulated BLE; phone validation pending |
 | known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
 | longer text / compression | **100/256/1,024-byte compressed numbered ASCII user-confirmed both ways on Linux ↔ iphone** after the reference-zlib correction; software tests cover Unicode and bounded compression/signing. native Windows longer-text radio validation pending |
 | public file receive | opt-in `--receive-files <existing-dir>` on Linux phone link; **four iPhone JPEG saves verified locally**: 3,485 bytes twice with identical hashes, plus 39,907 and 44,478 bytes; all fully decode. user visually confirmed the first image; original-byte/hash comparison unavailable. earlier MTU 517/value 514 and full 504-byte fragments were confirmed; the earlier 46-part image and compressed-fragment behavior still need specific radio evidence. no sending, private files, or general media guarantee |
@@ -200,7 +201,9 @@ startup retries disconnect only the selected peer, not the adapter, and don't
 change pairings. cached devices are ignored until live scan evidence arrives;
 missing-service candidates are skipped rather than retried on the same address.
 for a configured known phone, direct le can **start waiting before the app is
-open** (ctrl-c cancels); startup attempts back off from five to 30 seconds.
+open**; `/peers`, `/announce` and `/quit` work during setup/backoff, and
+Ctrl-C/Ctrl-D exit. the same terminal preserves drafts and history across
+connection changes. startup attempts back off from five to 30 seconds.
 it can't launch the iphone app or guarantee ios background advertising. permission failures and unsupported characteristic properties
 are not retried. chat messages are **never automatically replayed**.
 
@@ -210,16 +213,15 @@ public text, nicknames, and peer ids; review them before sharing.
 
 ## can i send files from iphone?
 
-not to chatt3r yet. stock bitchat's inspected iphone composer has photo/camera
-attachments and voice notes, but chatt3r doesn't receive or save those packets.
-there's no `/send` command.
+small public images can be received with opt-in `--receive-files <existing-dir>`
+on a Linux phone link. four iPhone JPEG saves fully decode locally; the first
+was visually confirmed by the user. files use random `.bin` names and are not
+automatically opened. see [the file evidence](docs/file-transfer-audit.md).
+there's no `/send` command, private-file receive or general media guarantee.
 
 the upstream binary envelope supports filenames, mime types, pdfs, and generic
 bytes. that doesn't prove the stock app has an arbitrary-file picker: the ui we
 checked has no general files/pdf import control. installed releases may differ.
-
-first we'll reuse the existing media format to receive a small phone attachment.
-then add safe saves, consent, integrity checks, and arbitrary-file support.
 
 ## update and test
 
@@ -237,14 +239,15 @@ online `cargo build --locked` command from setup, then return to offline use.
 for development checks, with cargo on your path:
 
 ```bash
-cargo test --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml
+cargo test --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r --lib
 cargo clippy --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r -- -D warnings
 python3 tests/launcher-smoke.py
 python3 desktop/bitchat-terminal/tests/ui-smoke.py
 ```
 
-currently: 31 passing unit tests, launcher tests with fake tools, and four linux
-pty cases for draft redraw, colors, and exit/terminal restoration. two interactive
+currently: 61 passing unit tests, launcher tests with fake tools, and nine linux
+pty cases for draft redraw, colors, persistent room commands, link loss/return,
+no replay and exit/terminal restoration. four interactive
 tests are skipped in the normal unit run and exercised by the pty script.
 
 one unit test also simulates two signed peers exchanging fragmented public text

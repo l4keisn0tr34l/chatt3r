@@ -92,7 +92,7 @@ Usage: chatt3r --write-limit <bytes> [--name <nickname>] [--debug]\n\
        chatt3r --direct-le <phone-address> [--wait-for-peer] [--debug] (linux LE-only link)\n\
 --write-limit: operator-provided characteristic value limit, NOT measured MTU (36..512).\n\
 --receive-files <existing-dir>: opt-in small public file receive on Linux phone link; saves .bin only.\n\
-Public text up to 1024 UTF-8 bytes (long text software-tested; phone retest pending). No confidentiality, DMs, file sending or relaying.\n\
+Public text up to 1024 UTF-8 bytes (phone numbered-ASCII confirmed both ways; Windows longer text pending). No confidentiality, DMs, file sending or relaying.\n\
 For phone mode keep stock BitChat open on iPhone in its public room; desktop mode needs Windows --host.\n\
 Commands: /peers, /announce, /quit. Ctrl-C / Ctrl-D exit. Run without sudo first.\n\
 Quiet by default; --debug shows BLE diagnostics. Nicknames are colored per peer.\n\
@@ -747,12 +747,109 @@ fn can_announce(wait_for_peer: bool, known_peers: usize) -> bool {
     !wait_for_peer || known_peers > 0
 }
 
+/// The terminal belongs to the application, not to a particular BLE link.
+struct Room {
+    input: ui::Input,
+    output: ui::Output,
+    announce_requested: bool,
+}
+
+impl Room {
+    fn open(debug: bool) -> Result<Self> {
+        let (input, output) = ui::open(debug)?;
+        Ok(Self {
+            input,
+            output,
+            announce_requested: false,
+        })
+    }
+
+    fn show_peers(&self, receiver: &Receiver) -> Result<()> {
+        self.output
+            .line(&format!("{} nearby peers", receiver.peers.len()))?;
+        for (id, (name, _)) in &receiver.peers {
+            let label = self.output.peer(name, id);
+            self.output.line(&if self.output.debug {
+                format!("  {label} ({})", hex::encode(id))
+            } else {
+                format!("  {label}")
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Poll input while a connect, backoff or write is pending. Submitted text
+    /// is rejected here; it is never queued or replayed when the link returns.
+    async fn operation<F: Future>(
+        &mut self,
+        future: F,
+        receiver: &Receiver,
+        link_available: bool,
+    ) -> Result<Option<F::Output>> {
+        tokio::pin!(future);
+        loop {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => return Ok(None),
+                result = &mut future => return Ok(Some(result)),
+                line = self.input.next_line() => {
+                    let Some(line) = line? else { return Ok(None); };
+                    match line.as_str() {
+                        "/quit" => return Ok(None),
+                        "/peers" => self.show_peers(receiver)?,
+                        "/announce" if link_available => {
+                            self.announce_requested = true;
+                            self.output.line("Will announce after the current BLE write finishes.")?;
+                        }
+                        "/announce" => self.output.line("Waiting for a phone link; nothing announced.")?,
+                        "" => {},
+                        _ if line.starts_with('/') => self.output.line("Unsupported command; use /peers, /announce, /quit")?,
+                        _ => self.output.line(if link_available {
+                            "BLE write in progress; message was not sent or queued."
+                        } else { "Waiting for a phone link; message was not sent or queued." })?,
+                    }
+                }
+            }
+        }
+    }
+
+    async fn write<F: Future<Output = Result<()>>>(
+        &mut self,
+        future: F,
+        receiver: &Receiver,
+        persistent: bool,
+    ) -> Result<bool> {
+        if !persistent {
+            future.await?;
+            return Ok(true);
+        }
+        Ok(self
+            .operation(future, receiver, true)
+            .await?
+            .transpose()?
+            .is_some())
+    }
+}
+
 async fn chat(
+    writer: LinkWriter<'_>,
+    notifications: BoxStream<'static, ValueNotification>,
+    options: &Options,
+    receiver: &mut Receiver,
+) -> Result<()> {
+    // Existing BlueZ/Windows sessions still open their terminal after setup.
+    let mut room = Room::open(options.debug)?;
+    chat_session(writer, notifications, options, receiver, &mut room, false).await
+}
+
+async fn chat_session(
     writer: LinkWriter<'_>,
     mut notifications: BoxStream<'static, ValueNotification>,
     options: &Options,
     receiver: &mut Receiver,
+    room: &mut Room,
+    persistent: bool,
 ) -> Result<()> {
+    let output = room.output.clone();
     let secret = StaticSecret::random_from_rng(OsRng);
     let noise_public = PublicKey::from(&secret).to_bytes();
     let local = protocol::peer_id(&noise_public);
@@ -770,59 +867,64 @@ async fn chat(
         writer.write_limit(configured_limit)?
     };
     if options.debug {
-        println!(
-            "[identity] {} ({}) — ephemeral for this run",
+        output.line(&format!(
+            "[identity] {} ({}) — ephemeral for this connection",
             display(&options.name),
             hex::encode(local)
-        );
+        ))?;
         match &writer {
             LinkWriter::BlueZ(_, _) => {
-                println!("[ble] configured frame limit={limit} bytes; negotiated MTU unknown")
+                output.line(&format!("[ble] configured frame limit={limit} bytes; negotiated MTU unknown"))?
             }
             #[cfg(windows)]
             LinkWriter::WindowsHost(_) => {
-                println!("[ble] configured notification limit={limit} bytes; checking session ATT MTU after inbound announcement")
+                output.line(&format!("[ble] configured notification limit={limit} bytes; checking session ATT MTU after inbound announcement"))?
             }
             #[cfg(target_os = "linux")]
-            LinkWriter::Direct(link) => println!(
+            LinkWriter::Direct(link) => output.line(&format!(
                 "[ble] configured write limit={limit} bytes; negotiated ATT MTU={} bytes",
                 link.max_value() + 3
-            ),
+            ))?,
             #[cfg(test)]
             LinkWriter::Test(_) => {}
         }
     }
-    println!(
+    output.line(&format!(
         "Connected as {}. Public chat — not encrypted; max {MAX_TEXT_BYTES} UTF-8 bytes.",
         display(&options.name)
-    );
+    ))?;
     receiver.begin_session(local);
     if let Some(directory) = &options.receive_files {
-        println!("Receive-only files enabled: small signed public files saved as .bin in {} (no auto-open; first radio test)", display(&directory.to_string_lossy()));
+        output.line(&format!("Receive-only files enabled: small signed public files saved as .bin in {} (no auto-open)", display(&directory.to_string_lossy())))?;
     }
     let mut initial_announce = Packet::new(ANNOUNCE, local, now_ms(), announce_payload.clone());
     initial_announce.sign(&signing)?;
     let mut initial_sent = false;
     if can_announce(wait_for_announcement, receiver.peers.len()) {
-        send(
-            &writer,
-            &initial_announce,
-            limit,
-            &ui::Output::plain(options.debug),
-        )
-        .await?;
+        if !room
+            .write(
+                send(&writer, &initial_announce, limit, &output),
+                receiver,
+                persistent,
+            )
+            .await?
+        {
+            return Ok(());
+        }
         initial_sent = true;
     } else if options.debug {
-        println!("[host] waiting for a signed peer announcement before notifying");
+        output.diagnostic("[host] waiting for a signed peer announcement before notifying")?;
     }
-    println!("/peers · /announce · /quit");
-    let (mut input, output) = ui::open(options.debug)?;
+    output.line("/peers · /announce · /quit")?;
     let mut announce_tick = tokio::time::interval(Duration::from_secs(15));
     announce_tick.tick().await; // Schedule later announcements in 15s.
     let mut link_tick = tokio::time::interval(Duration::from_secs(2));
     let mut observed_fragments = 0_usize;
     let mut reported_fragment_errors = HashSet::new();
     loop {
+        if std::mem::take(&mut room.announce_requested) {
+            announce_tick.reset_immediately();
+        }
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
             _ = link_tick.tick() => {
@@ -832,19 +934,15 @@ async fn chat(
                 if !can_announce(wait_for_announcement, receiver.peers.len()) { continue; }
                 let mut packet = Packet::new(ANNOUNCE, local, now_ms(), announce_payload.clone());
                 packet.sign(&signing)?;
-                send(&writer, &packet, limit, &output).await?;
+                if !room.write(send(&writer, &packet, limit, &output), receiver, persistent).await? { return Ok(()); }
             }
-            line = input.next_line() => {
+            line = room.input.next_line() => {
                 let Some(line) = line? else { break; };
                 if line.is_empty() { continue; }
                 match line.as_str() {
                     "/quit" => break,
                     "/peers" => {
-                        output.line(&format!("{} nearby peers", receiver.peers.len()))?;
-                        for (id, (name, _)) in &receiver.peers {
-                            let label = output.peer(name, id);
-                            output.line(&if output.debug { format!("  {label} ({})", hex::encode(id)) } else { format!("  {label}") })?;
-                        }
+                        room.show_peers(receiver)?;
                         continue;
                     }
                     "/announce" => { announce_tick.reset_immediately(); continue; }
@@ -856,7 +954,7 @@ async fn chat(
                 let sent_text = display(&line);
                 let mut packet = Packet::new(MESSAGE, local, now_ms(), line.into_bytes());
                 packet.sign(&signing)?;
-                send(&writer, &packet, limit, &output).await?;
+                if !room.write(send(&writer, &packet, limit, &output), receiver, persistent).await? { return Ok(()); }
                 output.line(&format!("[{}] {sent_text}", output.own()))?;
                 output.diagnostic("[tx] BLE frame submitted; verify receipt on the other peer (no application ACK).")?;
             }
@@ -884,7 +982,7 @@ async fn chat(
                     if let LinkWriter::WindowsHost(host) = &writer {
                         output.diagnostic(&format!("[host] inbound signed peer; session ATT MTU={} bytes, notification limit={limit}", host.att_mtu()?))?;
                     }
-                    send(&writer, &initial_announce, limit, &output).await?;
+                    if !room.write(send(&writer, &initial_announce, limit, &output), receiver, persistent).await? { return Ok(()); }
                     initial_sent = true;
                 }
             }
@@ -892,7 +990,16 @@ async fn chat(
     }
     let mut leave = Packet::new(LEAVE, local, now_ms(), vec![]);
     leave.sign(&signing)?;
-    let _ = send(&writer, &leave, limit, &output).await;
+    if persistent {
+        // Quitting must release the room promptly even if the phone vanishes.
+        let _ = timeout(
+            Duration::from_secs(1),
+            send(&writer, &leave, limit, &output),
+        )
+        .await;
+    } else {
+        let _ = send(&writer, &leave, limit, &output).await;
+    }
     Ok(())
 }
 
@@ -945,12 +1052,12 @@ fn file_frame_fits(value_limit: usize) -> bool {
 async fn connect_direct(
     address: BDAddr,
     wait: bool,
-    debug: bool,
+    output: &ui::Output,
     receive_files: bool,
     previously_connected: bool,
 ) -> Result<Option<std::sync::Arc<linux_att::DirectAtt>>> {
     if wait {
-        println!("Waiting for the known phone's BitChat service… open the app when ready; ctrl-c cancels.");
+        output.line("Waiting for the known phone's BitChat service… open the app when ready; /peers · /announce · /quit")?;
     }
     let mut attempt = 0u64;
     loop {
@@ -966,13 +1073,15 @@ async fn connect_direct(
             Ok(link) => return Ok(Some(link)),
             Err(error) if wait && retryable_direct_startup(&error, previously_connected) => {
                 let pause = direct_retry_delay(attempt);
-                if debug {
-                    eprintln!(
+                if output.debug {
+                    output.diagnostic(&format!(
                         "[ble] phone not ready (setup attempt {attempt}: {error}); retrying in {}s",
                         pause.as_secs()
-                    );
+                    ))?;
                 } else if attempt % 6 == 1 {
-                    println!("Still waiting for BitChat on the known phone; ctrl-c cancels.");
+                    output.line(
+                        "Still waiting for BitChat on the known phone; /peers · /announce · /quit",
+                    )?;
                 }
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => return Ok(None),
@@ -1033,24 +1142,34 @@ async fn main() -> Result<()> {
     }
     #[cfg(target_os = "linux")]
     if let Some(address) = options.direct_le {
+        let mut room = Room::open(options.debug)?;
+        let output = room.output.clone();
         if options.debug {
-            println!("[ble] direct LE ATT for {address}; no BlueZ profile auto-connect, pairing unchanged");
+            output.diagnostic(&format!("[ble] direct LE ATT for {address}; no BlueZ profile auto-connect, pairing unchanged"))?;
         }
         let mut recovery_attempt = 0u64;
         loop {
-            let Some(link) = connect_direct(
-                address,
-                options.wait_for_peer,
-                options.debug,
-                options.receive_files.is_some(),
-                recovery_attempt > 0,
-            )
-            .await?
+            let Some(setup) = room
+                .operation(
+                    connect_direct(
+                        address,
+                        options.wait_for_peer,
+                        &output,
+                        options.receive_files.is_some(),
+                        recovery_attempt > 0,
+                    ),
+                    &chat_receiver,
+                    false,
+                )
+                .await?
             else {
                 return Ok(());
             };
+            let Some(link) = setup? else {
+                return Ok(());
+            };
             if options.debug {
-                println!("[ble] direct LE connected, GATT verified, notifications enabled; negotiated ATT MTU={} (value limit={})", link.max_value() + 3, link.max_value());
+                output.diagnostic(&format!("[ble] direct LE connected, GATT verified, notifications enabled; negotiated ATT MTU={} (value limit={})", link.max_value() + 3, link.max_value()))?;
             }
             if options.receive_files.is_some() && !file_frame_fits(link.max_value()) {
                 return Err(format!("negotiated ATT value limit {} is below the observed 504-byte iPhone file fragment; cannot safely receive this image on this link. text remains available without --receive-files. no pairing changes needed", link.max_value()).into());
@@ -1069,26 +1188,34 @@ async fn main() -> Result<()> {
                     })
                 })
                 .boxed();
-            // Also cancel during initial/fragmented writes, before chat can
-            // poll its input branch. Dropping the future releases this ATT link.
-            let result = tokio::select! {
-                _ = tokio::signal::ctrl_c() => Ok(()),
-                result = chat(LinkWriter::Direct(link), notifications, &options, &mut chat_receiver) => result,
-            };
+            let result = chat_session(
+                LinkWriter::Direct(link),
+                notifications,
+                &options,
+                &mut chat_receiver,
+                &mut room,
+                true,
+            )
+            .await;
             if !retry_direct_session(options.wait_for_peer, &result) {
                 return result;
             }
-            // chat has returned and dropped its terminal input, notification stream
-            // and ATT link before retrying. Only a new presence announcement is sent.
+            // Drop old peer trust and partial assemblies immediately. Keep the
+            // terminal, duplicate history and file quota across connection changes.
+            chat_receiver.begin_session([0; 8]);
+            room.announce_requested = false;
             recovery_attempt = recovery_attempt.saturating_add(1);
             let pause = direct_retry_delay(recovery_attempt);
             if options.debug {
-                eprintln!("[ble] session ended: {}", result.unwrap_err());
+                output.diagnostic(&format!("[ble] session ended: {}", result.unwrap_err()))?;
             }
-            println!("Phone link ended; waiting for the same phone again in {}s. No message was replayed; check the other screen before resending. ctrl-c cancels.", pause.as_secs());
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => return Ok(()),
-                _ = sleep(pause) => {},
+            output.line(&format!("Phone link ended; waiting for the same phone again in {}s. No message was replayed; check the other screen before resending. /peers · /announce · /quit", pause.as_secs()))?;
+            if room
+                .operation(sleep(pause), &chat_receiver, false)
+                .await?
+                .is_none()
+            {
+                return Ok(());
             }
         }
     }
@@ -1312,6 +1439,120 @@ mod tests {
             std::fs::remove_file(entry.unwrap().path()).unwrap();
         }
         std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an interactive PTY"]
+    async fn persistent_room_wait_loss_return_and_write_cancellation() {
+        let options = parse_options(["--write-limit", "128"].map(str::to_owned))
+            .unwrap()
+            .unwrap();
+        let link = TestLink {
+            writes: Default::default(),
+            fail_after: usize::MAX,
+        };
+        let mut receiver = Receiver::new([0; 8]);
+        let mut room = Room::open(false).unwrap();
+        room.output.line("test: initial waiting").unwrap();
+        assert!(room
+            .operation(std::future::pending::<()>(), &receiver, false)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(link.writes.borrow().is_empty());
+
+        let key = SigningKey::from_bytes(&[0x42; 32]);
+        let noise = [9; 32];
+        let mut announce = Packet::new(
+            ANNOUNCE,
+            protocol::peer_id(&noise),
+            now_ms(),
+            protocol::announcement("iphone", &noise, &key.verifying_key()).unwrap(),
+        );
+        announce.sign(&key).unwrap();
+        let notification = ValueNotification {
+            uuid: CHARACTERISTIC,
+            value: announce.encode().unwrap(),
+        };
+        let first = futures::stream::once(std::future::ready(notification.clone()))
+            .chain(
+                futures::stream::once(async {
+                    // Give the PTY driver time to start an unfinished draft.
+                    sleep(Duration::from_millis(500)).await;
+                    None::<ValueNotification>
+                })
+                .filter_map(std::future::ready),
+            )
+            .boxed();
+        let result = chat_session(
+            LinkWriter::Test(&link),
+            first,
+            &options,
+            &mut receiver,
+            &mut room,
+            true,
+        )
+        .await;
+        assert!(result.unwrap_err().is::<LinkFailure>());
+        assert_eq!(receiver.peers.len(), 1);
+        receiver.begin_session([0; 8]);
+        room.announce_requested = false;
+        room.output
+            .line("test: link lost; same room waiting")
+            .unwrap();
+        assert!(room
+            .operation(std::future::pending::<()>(), &receiver, false)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(receiver.peers.is_empty());
+
+        room.output.line("test: link returned").unwrap();
+        let second = futures::stream::once(std::future::ready(notification))
+            .chain(futures::stream::pending())
+            .boxed();
+        chat_session(
+            LinkWriter::Test(&link),
+            second,
+            &options,
+            &mut receiver,
+            &mut room,
+            true,
+        )
+        .await
+        .unwrap();
+        let mut assemblies = Reassembler::default();
+        let packets: Vec<_> = link
+            .writes
+            .borrow()
+            .iter()
+            .filter_map(|wire| assemblies.accept(Packet::decode(wire).unwrap()).unwrap())
+            .collect();
+        let messages: Vec<_> = packets
+            .iter()
+            .filter(|packet| packet.kind == MESSAGE)
+            .collect();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].payload, b"fresh text");
+
+        // Cancellation drops a pending transport operation rather than waiting
+        // for its timeout: the same cancellation boundary as fragmented writes.
+        struct OnDrop<'a>(&'a std::cell::Cell<bool>);
+        impl Drop for OnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.set(true);
+            }
+        }
+        let dropped = std::cell::Cell::new(false);
+        let guard = OnDrop(&dropped);
+        room.output.line("test: blocked write").unwrap();
+        let write = async move {
+            let _guard = guard;
+            std::future::pending::<Result<()>>().await
+        };
+        assert!(!room.write(write, &receiver, true).await.unwrap());
+        assert!(dropped.get());
+        room.output.line("test: persistent room complete").unwrap();
     }
 
     #[tokio::test]

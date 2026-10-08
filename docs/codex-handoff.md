@@ -3,21 +3,24 @@
 for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
 
-current software checkpoint: **known-phone connection recovery** with direct
+current software checkpoint: **persistent known-phone terminal room** with direct
 LE `--wait-for-peer`. failed writes, disconnects and notification closure now
-return to waiting for the same phone. 61 unit tests, strict Linux/Windows
-checks, launcher smoke and six PTY cases pass; the binary is rebuilt.
+return to waiting for the same phone without replacing the terminal. commands
+work during setup/backoff; draft and history persist; submitted text is never
+queued or replayed. 61 unit tests, strict Linux/Windows
+checks, launcher smoke and nine PTY cases pass; the binary is rebuilt.
 the first physical app-close check on 2026-10-09 detected notification closure
 and started recovery, then **exited on OS error 38** during new setup.
 the candidate now retries this errno only after a previously successful
 direct-LE setup, retaining fatal cold-start/configuration/unsupported-protocol
 guards. socket errors include the setup stage and underlying errno; no
 protocol or discovery/role changes. **physical reconnect is unconfirmed**.
-the next gate is a repeat of
-[app close/reopen and short text both ways](reconnect.md#known-phone-recovery-device-checkpoint)
+the next gate is
+[commands with the app closed, then close/reopen and short text both ways](reconnect.md#known-phone-recovery-device-checkpoint)
 without restarting the laptop. only fresh presence is sent; duplicate history
 and per-run file quota persist, while keys and partial assemblies reset.
-general scanning, Windows recovery and BLE roles are unchanged. the
+the user deferred native Windows testing until after this build. general
+scanning, Windows recovery and BLE roles are unchanged. the
 zero-argument lifecycle audit is complete; broader implementation waits for
 this physical gate.
 
@@ -69,7 +72,7 @@ or full live-session reconnect are implemented.
 | stock iphone → linux public image | four valid JPEG saves: 3,485 bytes twice with identical hashes (252×448), plus 39,907 and 44,478 bytes (336×448); all fully decode locally. first image visually confirmed by user. repeated receive and larger content observed; original-byte comparison, encoded frame sizes and compression flags unavailable |
 
 public text is **not encrypted**. signing identities are ephemeral for each
-run, not trusted device pairing. the software text cap is **1,024 UTF-8
+connection, not trusted device pairing. the software text cap is **1,024 UTF-8
 bytes**; 100/256/1,024-byte numbered ASCII is now confirmed both ways on
 the Linux ↔ iphone link. native Windows longer text remains unverified. the
 launcher's `128`-byte frame limit is operator-selected, **not a measured MTU**.
@@ -87,7 +90,7 @@ linux laptop (btleplug fresh scan + connect + subscribe)
 ```
 
 - `desktop/bitchat-terminal/src/bin/chatt3r.rs`: `discover`, `LinkWriter`,
-  `send`, `Receiver::receive`, `chat`, and Windows `--host` entry point. same
+  `send`, `Receiver::receive`, `Room::operation`, `chat_session`, and Windows `--host` entry point. same
   packet validation and UI are used for the client and host transports.
   `--desktop-peer` selects UUID `88d5ec18-2621-4233-ad22-82702a601c97`
   for Linux/Windows central discovery; no flag still scans stock BitChat.
@@ -173,11 +176,11 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 
 ### next work, in order
 
-the current stopping point is the **known-phone recovery hardware retest**
+the current stopping point is the **persistent known-phone room hardware retest**
 after the 2026-10-09 OS-error-38 exit. preserve the completed phone longer-text
 evidence in [long-text-checkpoint.md](long-text-checkpoint.md). the retest is in
 [reconnect.md](reconnect.md#known-phone-recovery-device-checkpoint). 61 unit tests, strict
-Linux/Windows checks, launcher and six PTY cases pass; `--bin chatt3r` is
+Linux/Windows checks, launcher and nine PTY cases pass; `--bin chatt3r` is
 rebuilt. phone numbered-ASCII longer text is physically confirmed; reconnect
 and native Windows longer text remain unverified. do not start wider discovery
 or role implementation from this result.
@@ -243,7 +246,7 @@ or role implementation from this result.
 ## local checks and safety
 
 ```bash
-cargo test --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml
+cargo test --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r --lib
 cargo clippy --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r -- -D warnings
 python3 tests/launcher-smoke.py
 python3 desktop/bitchat-terminal/tests/ui-smoke.py

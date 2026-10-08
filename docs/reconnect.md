@@ -124,14 +124,18 @@ export CHATT3R_LE_PEER=AA:BB:CC:DD:EE:FF
 
 `chatt3r` will use direct le **and wait for the phone app to become ready**;
 `chatt3r --debug` shows each setup attempt. you can start it before opening
-bitchat; ctrl-c cancels. the client backs off from five to 30 seconds between
+bitchat; `/peers`, `/announce` and `/quit` are available while waiting, and
+Ctrl-C/Ctrl-D also exit. the client backs off from five to 30 seconds between
 failed startup attempts. after a write failure, disconnect or notification
 stream closure, it releases the old connection and returns to waiting with
 the same bounded backoff. it sends fresh presence on the next connection;
 user messages and incomplete files are not replayed. fresh peer announcements
 are required, while duplicate-message history and the per-run file quota
-remain bounded across reconnects. an unfinished terminal draft is discarded
-when the failed session closes. it cannot launch the ios app or promise
+remain bounded across reconnects. the same terminal, unfinished draft and
+in-memory history remain open across link changes. `/peers` shows zero after
+a lost link. `/announce` without a link reports waiting; it does not advertise
+or send a packet. text submitted while waiting or during another BLE write
+is rejected with an explicit response, never queued. it cannot launch the ios app or promise
 background advertising. permission, configuration and unsupported-adapter
 failures still exit rather than retrying forever.
 after a successful direct-LE setup, OS error 38 (`ENOSYS`) during a later
@@ -155,10 +159,13 @@ in this process. only then can `ENOSYS` retry in opted-in wait mode. cold
 startup `ENOSYS`, permissions, invalid configuration/data, missing/down
 adapters and genuinely unsupported protocols remain fatal. no message replay,
 adapter reset, bond change, protocol change or discovery/role change is added.
-61 unit tests, strict Linux/Windows checks, launcher smoke and six PTY cases
+the persistent-room candidate also keeps commands available before setup and
+through backoff. 61 unit tests, strict Linux/Windows checks, launcher smoke and nine PTY cases
 pass; the binary is rebuilt. regression tests cover retry classification for
 raw/contextual error 38 after a successful setup and permanent-error guards,
-not a physical reconnection.
+not a physical reconnection. PTY tests exercise the actual terminal and chat
+session with simulated BLE, including draft preservation, no replay and
+cancellation during a blocked write.
 
 Linux's [`bt_to_errno`](https://github.com/torvalds/linux/blob/master/net/bluetooth/lib.c)
 maps unknown Bluetooth status codes to `ENOSYS`. the original transcript did
@@ -173,15 +180,19 @@ check. quit any old client first, then:
 ./scripts/chatt3r --name laptop --debug
 ```
 
-1. keep BitChat foregrounded on the unlocked iphone. wait for a signed peer
+1. start with BitChat closed. at `you>` try `/peers` (expect zero), `/announce`
+   (expect waiting) and harmless text (expect not sent or queued). the client
+   must remain open. then open BitChat on the unlocked iphone in its Bluetooth
+   public room. wait for a signed peer
    announcement, exchange short numbered text both ways and check both screens.
 2. close the iphone app, leaving the laptop process running. when the phone
    link ends, expect a waiting/retry message rather than a shell prompt.
+   `/peers` must show zero and `/announce` must report waiting. keep the process open.
 3. reopen BitChat in its Bluetooth public chat. expect a new connection and
    signed announcement; exchange new numbered text both ways without restarting
    the laptop client. allow for the five-to-30-second retry delay and setup time.
-4. test `/quit` while connected. on a separate run, close the app and test
-   Ctrl-C while waiting; both should return to the shell with normal editing.
+4. test `/quit` while connected. on separate runs test `/quit`, Ctrl-C and
+   Ctrl-D while waiting; each should return to the shell with normal editing.
 
 if closing the app does not end the link, record that observation rather than
 claiming a reconnect. an out-of-range/return test can establish link recovery
