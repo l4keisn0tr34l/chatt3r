@@ -3,6 +3,9 @@
 for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
 
+the shared progress checklist is [TODO.md](../TODO.md); update it with observed
+results after each checkpoint.
+
 current software milestone: **bounded public text up to 1,024 UTF-8 bytes**,
 with compression, signing and receiver integration tests passing. longer
 text has **not been tested on the phone or native Windows radio**. the next
