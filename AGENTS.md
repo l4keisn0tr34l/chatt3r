@@ -51,6 +51,15 @@ what has shipped. prefer observed results and current code over old roadmaps.
 - never reset adapters, remove bonds, or alter the user's local known-phone
   setting as a routine fix. this laptop has `CHATT3R_LE_PEER` set locally; use
   `CHATT3R_LE_PEER= ./scripts/chatt3r ...` to bypass it **for one PC test**.
+- treat github as a public-facing repo and judge publication automatically.
+  publish intended, tested code, relevant tests and synthetic fixtures, and
+  accurate setup/protocol/evidence docs useful to users or contributors.
+  keep personal working plans, scratch notes, chat context, raw device logs,
+  received media and local configuration out of commits. `TODO.md` is a
+  local-only progress checklist; never stage or push it. inspect staged
+  content for public suitability before every push; explicit user preferences
+  take precedence. do not ask for approval file by file or rewrite published
+  history without authorization.
 - keep real device addresses, exported Pi sessions, credentials, and raw
   sensitive logs out of git. the local untracked `codexguide.md` belongs to the
   user: do not edit, stage, or commit it. it contains older plans; check the
