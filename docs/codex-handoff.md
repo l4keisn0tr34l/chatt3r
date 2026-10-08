@@ -3,6 +3,14 @@
 for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
 
+latest update (2026-10-09): the user reported the `f8fc03b` phone room
+checkpoint worked except for increasing retry latency. no new transcript or
+measured latency was provided. the requested correction waits a fixed five
+seconds after each failure; connection setup time is additional. the new
+timing has software evidence only. this supersedes the pending room retest
+below; the next check is a quick timing repeat. Windows testing remains
+deferred, and broader discovery/roles remain separate work.
+
 current software checkpoint: **persistent known-phone terminal room** with direct
 LE `--wait-for-peer`. failed writes, disconnects and notification closure now
 return to waiting for the same phone without replacing the terminal. commands

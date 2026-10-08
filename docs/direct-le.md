@@ -5,9 +5,11 @@
 **what changed:** an explicit `--direct-le <phone-address>` transport bypasses
 bluez's generic paired-device `connect()` for linux ↔ iphone. optional
 `--wait-for-peer` retries startup setup and now returns to waiting after a
-failed write, disconnect or notification stream closure. the five-to-30-second
-backoff permits starting before the iphone app is foregrounded. connection
-recovery is software-tested; physical reconnect remains unverified. normal
+failed write, disconnect or notification stream closure. the fixed five-second
+retry wait permits starting before the iphone app is foregrounded; setup time
+is additional. the user reported the `f8fc03b` room checkpoint worked except
+for increasing retry latency; no new transcript or measured latency was provided.
+the fixed timing is software-tested only. normal
 bluez scanning/chat remains the default. neither path unpairs, restarts
 bluetooth or replays a user message. reconnect starts a fresh chat session.
 

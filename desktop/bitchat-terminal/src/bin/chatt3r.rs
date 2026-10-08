@@ -1026,14 +1026,7 @@ fn retryable_direct_startup(error: &std::io::Error, previously_connected: bool) 
 }
 
 #[cfg(target_os = "linux")]
-fn direct_retry_delay(attempt: u64) -> Duration {
-    Duration::from_secs(match attempt {
-        1 => 5,
-        2 => 10,
-        3 => 20,
-        _ => 30,
-    })
-}
+const DIRECT_RETRY_DELAY: Duration = Duration::from_secs(5);
 
 #[cfg(target_os = "linux")]
 fn retry_direct_session(wait: bool, result: &Result<()>) -> bool {
@@ -1072,7 +1065,7 @@ async fn connect_direct(
         match result {
             Ok(link) => return Ok(Some(link)),
             Err(error) if wait && retryable_direct_startup(&error, previously_connected) => {
-                let pause = direct_retry_delay(attempt);
+                let pause = DIRECT_RETRY_DELAY;
                 if output.debug {
                     output.diagnostic(&format!(
                         "[ble] phone not ready (setup attempt {attempt}: {error}); retrying in {}s",
@@ -1205,7 +1198,7 @@ async fn main() -> Result<()> {
             chat_receiver.begin_session([0; 8]);
             room.announce_requested = false;
             recovery_attempt = recovery_attempt.saturating_add(1);
-            let pause = direct_retry_delay(recovery_attempt);
+            let pause = DIRECT_RETRY_DELAY;
             if options.debug {
                 output.diagnostic(&format!("[ble] session ended: {}", result.unwrap_err()))?;
             }
@@ -1697,10 +1690,6 @@ mod tests {
             &IoError::from_raw_os_error(libc::ENODEV),
             false
         ));
-        assert_eq!(
-            [1, 2, 3, 4, 50].map(direct_retry_delay),
-            [5, 10, 20, 30, 30].map(Duration::from_secs)
-        );
     }
 
     #[cfg(target_os = "linux")]

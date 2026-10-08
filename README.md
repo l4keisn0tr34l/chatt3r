@@ -203,7 +203,8 @@ missing-service candidates are skipped rather than retried on the same address.
 for a configured known phone, direct le can **start waiting before the app is
 open**; `/peers`, `/announce` and `/quit` work during setup/backoff, and
 Ctrl-C/Ctrl-D exit. the same terminal preserves drafts and history across
-connection changes. startup attempts back off from five to 30 seconds.
+connection changes. failed startup attempts use a fixed five-second retry wait;
+connection setup time is additional.
 it can't launch the iphone app or guarantee ios background advertising. permission failures and unsupported characteristic properties
 are not retried. chat messages are **never automatically replayed**.
 

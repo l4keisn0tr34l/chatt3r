@@ -125,10 +125,10 @@ export CHATT3R_LE_PEER=AA:BB:CC:DD:EE:FF
 `chatt3r` will use direct le **and wait for the phone app to become ready**;
 `chatt3r --debug` shows each setup attempt. you can start it before opening
 bitchat; `/peers`, `/announce` and `/quit` are available while waiting, and
-Ctrl-C/Ctrl-D also exit. the client backs off from five to 30 seconds between
-failed startup attempts. after a write failure, disconnect or notification
+Ctrl-C/Ctrl-D also exit. the client waits a fixed five seconds after each
+failed startup attempt; connection setup time is additional. after a write failure, disconnect or notification
 stream closure, it releases the old connection and returns to waiting with
-the same bounded backoff. it sends fresh presence on the next connection;
+the same fixed retry wait. it sends fresh presence on the next connection;
 user messages and incomplete files are not replayed. fresh peer announcements
 are required, while duplicate-message history and the per-run file quota
 remain bounded across reconnects. the same terminal, unfinished draft and
@@ -139,7 +139,7 @@ is rejected with an explicit response, never queued. it cannot launch the ios ap
 background advertising. permission, configuration and unsupported-adapter
 failures still exit rather than retrying forever.
 after a successful direct-LE setup, OS error 38 (`ENOSYS`) during a later
-setup is retried with the same backoff. on cold startup it still exits.
+setup is retried after five seconds. on cold startup it still exits.
 Linux Bluetooth can use this errno for an unmapped connection status;
 it does not always mean an absent syscall. socket setup diagnostics now
 include their stage and retain the underlying errno.
@@ -149,10 +149,16 @@ you ask. without the local setting, opt in with `--direct-le <address>
 
 ## known-phone recovery: device checkpoint
 
-status (2026-10-09): the first physical app-close check **failed**. the client
+latest result (2026-10-09, `f8fc03b`): after the room checkpoint below, the user
+reported that everything worked except the increasing retry delay. this is
+user-reported checkpoint success; no new transcript or measured reconnect
+latency was provided. the requested fixed five-second retry wait is a subsequent
+software change, awaiting a quick repeat. setup time is additional.
+
+earlier result: the first physical app-close check **failed**. the client
 received a signed LEAVE, detected notification closure and entered its
 five-second retry, then exited on OS error 38. the correction below passes
-software tests; physical close/reopen reconnection is still unconfirmed.
+software tests; the later user-reported room result is recorded above.
 
 `retryable_direct_startup` now receives whether an earlier setup succeeded
 in this process. only then can `ENOSYS` retry in opted-in wait mode. cold
@@ -190,7 +196,8 @@ check. quit any old client first, then:
    `/peers` must show zero and `/announce` must report waiting. keep the process open.
 3. reopen BitChat in its Bluetooth public chat. expect a new connection and
    signed announcement; exchange new numbered text both ways without restarting
-   the laptop client. allow for the five-to-30-second retry delay and setup time.
+   the laptop client. allow for the fixed five-second retry wait and setup time.
+   in a timing repeat, successive failed attempts should all report `retrying in 5s`.
 4. test `/quit` while connected. on separate runs test `/quit`, Ctrl-C and
    Ctrl-D while waiting; each should return to the shell with normal editing.
 
