@@ -1,15 +1,13 @@
-# longer public text: software checkpoint
+# longer public text: iphone hardware checkpoint
 
 status (2026-10-08): `chatt3r` can encode, sign, fragment, verify and display
-public text up to **1,024 UTF-8 bytes** in software tests. the first
-**laptop → iPhone 100-byte check failed to arrive**, while short text worked
-in that same connection. the user then quit the session; the reverse
-100-byte direction and larger sizes remain untested. native Windows longer
-text remains untested. the previously
-user-confirmed short-text paths and four saved iPhone JPEGs remain the
-physical evidence. the reference-zlib correction now passes independent
-outgoing byte comparisons in software; repeat short text and 100 bytes on
-the phone before testing larger sizes.
+public text up to **1,024 UTF-8 bytes** in software tests. after the
+reference-zlib correction in `8699b17`, the user confirmed **100-, 256- and
+1,024-byte numbered ASCII messages in both directions between Linux and
+stock iPhone BitChat**, with a supporting Linux transcript. short text also
+worked. the earlier outbound 100-byte failure is retained below as history.
+native Windows longer text and physical reconnect remain unverified. stop
+at this completed phone text checkpoint; broader discovery/roles are separate.
 
 ## source and data flow
 
@@ -76,6 +74,43 @@ changed. messages are not automatically replayed after an ambiguous failure.
 
 ## evidence and limits
 
+### successful phone retest (2026-10-08)
+
+the user ran the existing known-phone direct-LE launcher in text-only mode
+and explicitly reported that all three sizes worked both ways. the Linux
+transcript records signed peer discovery, short incoming text, the outgoing
+samples, and authenticated/decompressed incoming samples at the expected
+decoded byte counts. outbound receipt is established by the user's phone
+observation; a successful BLE write alone would not establish it.
+
+| decoded UTF-8 bytes | Linux → iphone compressed wire payload | outgoing frames at configured limit 128 | iphone → Linux decoded bytes | physical result |
+| ---: | ---: | ---: | ---: | --- |
+| 100 | 48 | 2 | 100 | user-confirmed both ways |
+| 256 | 90 | 2 | 256 | user-confirmed both ways |
+| 1,024 | 325 | 5 | 1,024 | user-confirmed both ways |
+
+all three outer messages were compressed. incoming 100/256-byte messages
+arrived as type `0x02` values of 134/176 bytes. the incoming 1,024-byte
+message was assembled after three type `0x20` notifications of 150, 72 and
+132 bytes; individual fragment compression flags were not recorded.
+negotiated ATT MTU was **185**, value limit **182**; configured outgoing
+limit stayed **128**, which is a separate operator limit.
+
+startup first reported a missing phone service and retried after five
+seconds, then connected in the same process. this confirms one startup
+wait-to-ready transition, not recovery after an established link disconnects.
+the transcript ends with a LEAVE submission; it does not establish resource
+cleanup or a returning-peer reconnection. app/iOS version and Wi-Fi/cellular
+switch states were not recorded for this run. no OS pairing change was shown.
+
+this establishes compressed numbered-ASCII interoperability on this phone
+link, including fragmented 1,024-byte delivery. Unicode, high-diversity
+uncompressed long text, repeated reliability, native Windows longer text,
+and file-mode text under the new backend remain separate physical tests.
+the four earlier JPEG saves remain evidence; this text-only run did not
+receive a file. raw device addresses, peer IDs and full transcripts are not
+included in this record.
+
 ### failed first phone checkpoint
 
 the user reported the failed outbound 100-byte message on 2026-10-08. no
@@ -140,14 +175,15 @@ synthetic fixtures, not captured stock-phone output.
 
 Apple verifies a canonical re-encoding that may recompress the payload.
 the corrected outgoing representation matches independent reference-zlib
-fixtures at Apple's documented settings; this **does not establish physical
-delivery or byte identity with the installed app's Apple encoder**. the
-prepared phone retest must establish interoperability. inbound verification
-still uses the received representation without recompressing untrusted input.
+fixtures at Apple's documented settings. the phone retest above establishes
+physical interoperability for the three numbered-ASCII samples, without
+claiming byte identity for every payload or installed app version. inbound
+verification still uses the received representation without recompressing
+untrusted input.
 public text remains plaintext with ephemeral signing identities, no Noise
 authentication or application delivery receipts. file sending remains absent.
 
-## next hardware checkpoint
+## phone checkpoint procedure (completed for numbered ascii)
 
 with the user's ready iPhone and explicit consent, use the existing known
 phone link and keep BitChat unlocked in its Bluetooth/mesh public chat:
@@ -189,7 +225,7 @@ first failing direction/size. do not raise bounds or replay an ambiguous
 message automatically. a GATT write alone is not receipt. diagnose the
 protocol result before further changes.
 
-after the phone check, the Windows PC must pull/build/run natively using its
+the remaining PC checkpoint requires the Windows PC to pull/build/run natively using its
 existing `--host` and Linux's existing `--desktop-peer` commands in
 [windows.md](windows.md), then exchange the same sizes both ways. no PC radio
 test has been performed in this software session. zero-argument connectivity

@@ -76,8 +76,11 @@ history. `NO_COLOR=1` disables colors; piped output stays plain. `/quit` and res
 to load a newly built binary. Ignored/malformed frame diagnostics require `--debug`.
 
 The software candidate allows **1,024 UTF-8 bytes**; earlier radio-confirmed
-text was the <=99-byte subset. Longer-text radio validation is pending at
-[long-text-checkpoint.md](long-text-checkpoint.md). Public plaintext
+text was the <=99-byte subset. **100/256/1,024-byte compressed numbered ASCII
+is now user-confirmed both ways** on the direct-LE phone link; see the
+2026-10-08 evidence below and [long-text-checkpoint.md](long-text-checkpoint.md).
+native Windows longer text and Unicode/high-diversity radio cases remain
+unverified. Public plaintext
 is signed but not confidential, not Noise-authenticated. Do not send secrets.
 The opt-in **small public file receiver** has four verified iPhone JPEG saves:
 3,485 bytes twice (identical hashes), plus 39,907 and 44,478 bytes. All fully
@@ -85,13 +88,42 @@ decode; repeated receive and larger content are observed on radio.
 The user visually confirmed the first image matches the image sent; original-byte/hash
 comparison is unavailable. Earlier type-`0x20` values were
 rejected as truncated or unsupported, before file verification/saving. No file sending, private media,
-encryption sessions, auto-reconnection, delivery ACKs or gossip sync is implemented.
+encryption sessions, delivery ACKs or gossip sync is implemented. known-phone
+direct-LE wait-mode reconnection is software-tested; physical recovery after
+an established link disconnects remains unverified.
 
-`[drop]` errors are intentional diagnostics, not panics. A compressed/routed
-frame or oversized announcement needs follow-up support. A short nickname and
+`[drop]` errors are intentional diagnostics, not panics. compressed public
+text is supported; a routed frame or compressed/oversized announcement needs
+follow-up support. A short nickname and
 isolated two-device test may avoid compressed announcements; this is a temporary
 baseline limitation, not a protocol rule. If a signed public message arrives
 before a valid announcement, wait for the next announce and resend the message.
+
+## longer public text confirmed both ways (2026-10-08)
+
+after the reference-zlib signing correction in `8699b17`, the user confirmed
+**100-, 256- and 1,024-byte numbered ASCII** arrives in both directions.
+the Linux transcript records short incoming messages, compressed outbound
+payloads of **48/90/325 bytes** over **2/2/5 frames**, and authenticated
+incoming decoded text of **100/256/1,024 bytes**, all marked compressed.
+incoming 100/256-byte packets used type `0x02`; the incoming 1,024-byte
+message completed after three type `0x20` notifications. individual fragment
+compression flags were not logged. phone-side receipt is the user's explicit
+observation, not inferred from successful writes.
+
+the known-phone link negotiated **ATT MTU 185 / value limit 182** and used
+the configured outgoing limit **128**. file receive was off. one startup
+missing-service retry after five seconds was followed by connection in the
+same process; no established-link loss/return was exercised. the excerpt
+ends with a LEAVE submission, without separate process-exit/cleanup evidence.
+app/iOS version and Wi-Fi/cellular switch states were not recorded for this
+run. the earlier offline short-text confirmation remains separate evidence.
+
+the earlier outbound 100-byte failure and canonical-compression diagnosis
+are retained in [long-text-checkpoint.md](long-text-checkpoint.md). native
+Windows longer text, Unicode/high-diversity radio messages and reconnection
+remain unverified. no raw addresses, peer IDs, user text or transcript are
+included here. stop at this completed phone text checkpoint.
 
 ## receive-only public images (opt-in; repeated and larger jpegs saved)
 

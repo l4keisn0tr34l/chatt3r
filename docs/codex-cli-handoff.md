@@ -2,20 +2,18 @@
 
 start in the repository root. give codex-cli this prompt:
 
-> read `AGENTS.md`, `docs/codex-handoff.md` and the known-phone recovery checkpoint in `docs/reconnect.md` first. direct-LE wait mode now retries after session failures; it is software-tested and rebuilt, not radio-confirmed. collect user-authorized app close/reopen and short-text observations before continuing the longer-text checkpoint. preserve file opt-in, per-run quotas and no message replay. broader discovery/roles remain separate work after this gate. do not reset bluetooth or remove bonds. do not edit or stage my untracked `codexguide.md` or local `TODO.md`.
+> read `AGENTS.md`, `docs/codex-handoff.md` and `docs/long-text-checkpoint.md` first. Linux ↔ iphone 100/256/1,024-byte numbered ASCII now works both ways after the reference-zlib correction, confirmed by the user and Linux metadata. stop at that completed hardware checkpoint. known-phone established-link recovery remains software-tested only; app close/reopen without restarting the laptop and native Windows longer text are remaining physical gates. preserve file opt-in, quotas and no message replay. broader discovery/roles remain separate work; wait for explicit direction before proceeding. do not reset bluetooth or remove bonds. do not edit or stage my untracked `codexguide.md` or local `TODO.md`.
 
-the first laptop → iphone 100-byte test failed to arrive while short
-text worked in the same connection. the reference-zlib level-5 correction
-now passes independent outgoing byte comparisons; repeat short text and
-100 bytes before larger-message tests. read the
-canonical-compression/signature diagnosis in `docs/long-text-checkpoint.md`
-and the local TODO before further work. the reverse 100-byte
-direction, larger sizes and physical reconnect remain unverified.
+the first laptop → iphone 100-byte test failed while short text worked.
+after the reference-zlib level-5 correction in `8699b17`, the user confirmed
+100-, 256- and 1,024-byte messages both ways, with supporting Linux metadata.
+the earlier failure and synthetic signing diagnosis remain recorded.
+native Windows longer text and physical reconnect remain unverified.
 
 ## where this stands
 
 - known-phone wait-mode recovery passes 59 unit tests, strict Linux/Windows checks, launcher smoke and six PTY cases. the old input, notification stream and ATT link drop before retry; fresh peer announcements are required; duplicate history and per-run file quota survive. actual phone reconnect is pending. ordinary scanning and Windows hosting retain their prior lifecycle. see `docs/reconnect.md` for the next physical gate.
-- public text up to **1,024 UTF-8 bytes** passes software tests, including independent signed v1/v2 fixtures, both chat receivers, Unicode and mixed compressed/plain fragments with file mode on/off. original short-text wire bytes and file tests still pass. **the first outbound 100-byte radio check failed**. a synthetic comparison reproduced incompatible miniz canonical compression bytes and signature failure after reference-zlib re-encoding; the actual phone rejection reason was not logged. reference zlib at level 5 now passes outgoing byte-for-byte signing tests; see [long-text-checkpoint.md](long-text-checkpoint.md). the phone retest is pending; no longer-text phone or PC success is established.
+- public text up to **1,024 UTF-8 bytes** passes software tests, including independent outgoing signed v1/v2 byte comparisons, both chat receivers, Unicode and mixed compressed/plain fragments with file mode on/off. original short-text wire bytes and file tests still pass. **100/256/1,024-byte compressed numbered ASCII now works both ways on Linux ↔ iphone**, user-confirmed with supporting Linux metadata after `8699b17`. ATT MTU was 185, value limit 182, configured writes 128; the 1,024-byte message was fragmented in each direction. one missing-service startup retry followed by connection is observed, not established-link recovery. native Windows longer text and Unicode/high-diversity radio tests remain unverified; see [long-text-checkpoint.md](long-text-checkpoint.md).
 - user-confirmed linux ↔ iphone and linux ↔ windows public text must remain intact. text-only direct le requests mtu 185; `--receive-files <existing-dir>` alone requests 517 and fails if the negotiated att value limit is below 504.
 - on the first successful **physical** image attempt (2026-10-07), after rebuilding, the user reported one saved **3,485-byte iPhone JPEG** following a signed announcement. local checks verified the size, SHA-256 matching the receiver output, mode **0600**, and full **252×448 RGB JPEG** decode. the user visually confirmed the saved image matches the image sent; no original file is saved for byte/hash comparison. this excerpt contains 458/328/80/168/504/431-byte `0x20` values but no negotiated MTU, flags or fragment counts; no local path, peer ID or image bytes belong in git.
 - subsequent image sends left **four valid JPEG saves**: 3,485 bytes twice with identical SHA-256 (252×448 RGB), plus **39,907 and 44,478 bytes** (336×448 RGB). all fully decode and have mode 0600. repeated receive and larger decoded content are confirmed. exact encoded outer-frame sizes and compression flags were not retained.

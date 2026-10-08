@@ -17,10 +17,10 @@ JPEG saves have been verified locally, including a repeat and two larger images.
 | --- | --- |
 | linux ↔ stock iphone bitchat text | user-confirmed on real devices |
 | quiet chat, colored nicknames, editable input | implemented; terminal-tested |
-| startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait (closed-app wait observed, reopen transition pending) |
+| startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait. one missing-service retry followed by connection observed; established-link reconnect pending |
 | known-phone connection recovery | `--direct-le` with `--wait-for-peer` returns to waiting after a failed write or lost link; software-tested, physical close/reopen and reconnect pending. no user-message replay |
 | known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
-| longer text / compression | **software-tested up to 1,024 UTF-8 bytes** with bounded public-text compression/signing; iPhone and native Windows radio validation pending. previously confirmed text remains the short subset |
+| longer text / compression | **100/256/1,024-byte compressed numbered ASCII user-confirmed both ways on Linux ↔ iphone** after the reference-zlib correction; software tests cover Unicode and bounded compression/signing. native Windows longer-text radio validation pending |
 | public file receive | opt-in `--receive-files <existing-dir>` on Linux phone link; **four iPhone JPEG saves verified locally**: 3,485 bytes twice with identical hashes, plus 39,907 and 44,478 bytes; all fully decode. user visually confirmed the first image; original-byte/hash comparison unavailable. earlier MTU 517/value 514 and full 504-byte fragments were confirmed; the earlier 46-part image and compressed-fragment behavior still need specific radio evidence. no sending, private files, or general media guarantee |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |
@@ -161,7 +161,7 @@ adapter supports it. another link may need a different value:
 chatt3r --write-limit 64 --debug
 ```
 
-### the 1,024-byte text candidate
+### the 1,024-byte text limit
 
 messages currently have to fit in **1,024 utf-8 bytes**. plain english characters
 usually use one byte; emoji and other unicode characters may use more.
@@ -170,11 +170,13 @@ usually use one byte; emoji and other unicode characters may use more.
 - longer incoming messages are rejected; `--debug` shows the reason.
 - changing the frame limit won't raise this text limit.
 
-the longer-text path is **software-tested; physical iPhone/Windows validation
-is pending**. below 100 bytes the previous uncompressed wire/signing format
+the user confirmed **100-, 256- and 1,024-byte numbered ASCII messages both
+ways on Linux ↔ iphone**, including compressed and fragmented delivery.
+native Windows longer text and Unicode/high-diversity radio tests remain
+pending. below 100 bytes the previous uncompressed wire/signing format
 is preserved. larger public texts can use bounded raw-DEFLATE compression;
-the phone's canonical recompression/signature behavior still needs the
-prepared [device checkpoint](docs/long-text-checkpoint.md).
+reference zlib matches the independent canonical signing fixtures. see the
+[phone evidence and remaining device checkpoints](docs/long-text-checkpoint.md).
 
 ## if it stops talking
 

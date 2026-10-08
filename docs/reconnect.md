@@ -229,7 +229,9 @@ chatt3r --help
 - 128 is the outgoing frame limit, including protocol overhead. it isn't a
   measured mtu, and it isn't the text-length limit.
 - the software text cap is **1,024 utf-8 bytes**; previously confirmed text
-  was the <=99-byte subset. longer-text radio validation is still pending.
+  was the <=99-byte subset. **100/256/1,024-byte numbered ASCII is now
+  confirmed both ways on Linux ↔ iphone**; native Windows longer text
+  remains unverified. see [long-text-checkpoint.md](long-text-checkpoint.md).
 - public chat isn't encrypted. use test text, not secrets.
 - four iphone JPEG receives are verified in opt-in file mode. file sending,
   private media and general media compatibility are not implemented.

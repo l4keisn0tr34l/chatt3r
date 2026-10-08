@@ -15,20 +15,19 @@ general scanning, Windows recovery and BLE roles are unchanged. the
 zero-argument lifecycle audit is complete; broader implementation waits for
 this physical gate.
 
-the pending protocol milestone is **bounded public text up to 1,024 UTF-8 bytes**,
-with compression, signing and receiver integration tests passing. the first
-**laptop → iphone 100-byte physical check failed to arrive**, while short
-text worked in the same connection. the reverse direction, larger sizes and
-native Windows longer text remain untested. a synthetic comparison reproduces
-different miniz/reference-zlib canonical bytes and failed signature verification
-after reference re-encoding; the actual phone rejection reason was not logged.
-see [long-text-checkpoint.md](long-text-checkpoint.md). a reference-zlib backend
-correction at level 5 now passes outgoing byte-for-byte preimage and packet
-checks against independent fixtures. the shared decoder also changes backend;
-file-receiver and malformed-stream tests pass. physical delivery remains
-unverified: regress short text and repeat 100 bytes both ways first.
-continue that physical test after short-text recovery passes. discovery and
-BLE roles are unchanged; zero-argument connectivity is separate follow-up work.
+the phone protocol checkpoint is now **user-confirmed two-way 100-, 256- and
+1,024-byte numbered ASCII public text** after the reference-zlib level-5
+correction in `8699b17`. the Linux transcript records outgoing compressed
+payloads of 48/90/325 bytes over 2/2/5 frames and incoming decoded sizes of
+100/256/1,024 bytes; the user explicitly confirmed phone-side receipt.
+ATT MTU stayed 185, value limit 182, configured writes 128. the earlier
+outbound 100-byte failure and software diagnosis remain recorded in
+[long-text-checkpoint.md](long-text-checkpoint.md). short text also worked.
+one startup missing-service retry followed by connection is observed;
+established-link reconnect remains unverified. native Windows longer text,
+Unicode/high-diversity radio cases and file-mode text remain untested.
+stop at this hardware checkpoint. discovery and BLE roles are unchanged;
+zero-argument connectivity is separate follow-up work.
 
 current snapshot: **user-confirmed two-way public text over BLE between the
 Linux laptop and Windows PC**, first on the stock service with iphone Bluetooth
@@ -56,7 +55,7 @@ or full live-session reconnect are implemented.
 
 | path | evidence |
 | --- | --- |
-| stock iphone ↔ linux | bidirectional public text user-confirmed on physical BLE; includes an iphone-offline Linux direct-LE run |
+| stock iphone ↔ linux | bidirectional public text user-confirmed on physical BLE, including 100/256/1,024-byte compressed numbered ASCII after `8699b17`; earlier short-text run confirmed offline operation, switch states not recorded for this longer-text run |
 | windows → iphone | user-confirmed native Windows BLE client text; iphone → windows not separately confirmed |
 | linux ↔ windows pc | **user-confirmed two-way public text over BLE with iphone Bluetooth off** using the stock service. Linux received signed `windows-pc` announcement and text `yo`, `ok got it`; Linux sent `hi`, `yoooooooo`. user also confirmed **two-way text** on the desktop-only service with phone Bluetooth **on throughout**; no simultaneous phone-on transcript or Wi-Fi/cellular switch states were recorded |
 | linux ↔ linux | not working; this laptop's Realtek adapter rejected a temporary BlueZ advertisement (`Invalid Parameters (0x0d)`) |
@@ -65,7 +64,8 @@ or full live-session reconnect are implemented.
 
 public text is **not encrypted**. signing identities are ephemeral for each
 run, not trusted device pairing. the software text cap is **1,024 UTF-8
-bytes**; previous radio-confirmed text was the **<=99-byte subset**. the
+bytes**; 100/256/1,024-byte numbered ASCII is now confirmed both ways on
+the Linux ↔ iphone link. native Windows longer text remains unverified. the
 launcher's `128`-byte frame limit is operator-selected, **not a measured MTU**.
 a successful GATT write is not an application delivery receipt. never replay
 an ambiguous message after link failure.
@@ -167,11 +167,14 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 
 ### next work, in order
 
-the current stopping point is the **known-phone recovery hardware check** in
-[reconnect.md](reconnect.md#known-phone-recovery-device-checkpoint), followed
-by [long-text-checkpoint.md](long-text-checkpoint.md). 59 unit tests, strict
+the current stopping point is the **completed phone longer-text checkpoint**
+in [long-text-checkpoint.md](long-text-checkpoint.md). the remaining known-phone
+recovery hardware check is in
+[reconnect.md](reconnect.md#known-phone-recovery-device-checkpoint). 59 unit tests, strict
 Linux/Windows checks, launcher and six PTY cases pass; `--bin chatt3r` is
-rebuilt. reconnect and longer-text evidence remain software-only.
+rebuilt. phone numbered-ASCII longer text is physically confirmed; reconnect
+and native Windows longer text remain unverified. do not start wider discovery
+or role implementation from this result.
 
 1. **retain the two-way phone-on confirmation and, when practical, collect
    simultaneous console evidence in a repeat test** on the same pair.
