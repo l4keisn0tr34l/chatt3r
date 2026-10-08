@@ -149,11 +149,13 @@ you ask. without the local setting, opt in with `--direct-le <address>
 
 ## known-phone recovery: device checkpoint
 
-latest result (2026-10-09, `f8fc03b`): after the room checkpoint below, the user
-reported that everything worked except the increasing retry delay. this is
-user-reported checkpoint success; no new transcript or measured reconnect
-latency was provided. the requested fixed five-second retry wait is a subsequent
-software change, awaiting a quick repeat. setup time is additional.
+latest result (2026-10-09, `b4f3581`): **checkpoint passed by user confirmation**.
+repeated retries reported five seconds; opening BitChat allowed short text both
+ways; another close/reopen restored communication without restarting chatt3r.
+the preceding `f8fc03b` room check worked except increasing retry latency.
+no new transcript or measured end-to-end reconnect latency was provided;
+setup time is additional. this does not establish out-of-range recovery,
+iOS background operation or recovery on other transports.
 
 earlier result: the first physical app-close check **failed**. the client
 received a signed LEAVE, detected notification closure and entered its

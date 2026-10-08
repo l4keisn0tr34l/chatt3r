@@ -3,13 +3,15 @@
 for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
 
-latest update (2026-10-09): the user reported the `f8fc03b` phone room
-checkpoint worked except for increasing retry latency. no new transcript or
-measured latency was provided. the requested correction waits a fixed five
-seconds after each failure; connection setup time is additional. the new
-timing has software evidence only. this supersedes the pending room retest
-below; the next check is a quick timing repeat. Windows testing remains
-deferred, and broader discovery/roles remain separate work.
+latest update (2026-10-09): **known-phone room and retry checkpoint complete**.
+after the `b4f3581` timing correction, the user confirmed all three requested
+physical checks: repeated retries report five seconds, opening BitChat permits
+short text both ways, and another close/reopen restores text in the same laptop
+process. the earlier `f8fc03b` room check also worked except retry latency.
+no new transcript or measured end-to-end reconnect latency was provided;
+connection setup time is additional. this supersedes pending room/retry gates
+below. Windows testing remains deferred. broader discovery/roles are separate
+work and have not started; stop here until further direction.
 
 current software checkpoint: **persistent known-phone terminal room** with direct
 LE `--wait-for-peer`. failed writes, disconnects and notification closure now
@@ -22,15 +24,14 @@ and started recovery, then **exited on OS error 38** during new setup.
 the candidate now retries this errno only after a previously successful
 direct-LE setup, retaining fatal cold-start/configuration/unsupported-protocol
 guards. socket errors include the setup stage and underlying errno; no
-protocol or discovery/role changes. **physical reconnect is unconfirmed**.
-the next gate is
+protocol or discovery/role changes. the subsequent physical result is recorded above.
+the completed gate was
 [commands with the app closed, then close/reopen and short text both ways](reconnect.md#known-phone-recovery-device-checkpoint)
 without restarting the laptop. only fresh presence is sent; duplicate history
 and per-run file quota persist, while keys and partial assemblies reset.
 the user deferred native Windows testing until after this build. general
 scanning, Windows recovery and BLE roles are unchanged. the
-zero-argument lifecycle audit is complete; broader implementation waits for
-this physical gate.
+zero-argument lifecycle audit is complete; broader implementation remains separate.
 
 the phone protocol checkpoint is now **user-confirmed two-way 100-, 256- and
 1,024-byte numbered ASCII public text** after the reference-zlib level-5
@@ -41,7 +42,7 @@ ATT MTU stayed 185, value limit 182, configured writes 128. the earlier
 outbound 100-byte failure and software diagnosis remain recorded in
 [long-text-checkpoint.md](long-text-checkpoint.md). short text also worked.
 one startup missing-service retry followed by connection is observed;
-established-link reconnect remains unverified. native Windows longer text,
+known-phone app close/reopen is now user-confirmed separately. native Windows longer text,
 Unicode/high-diversity radio cases and file-mode text remain untested.
 stop at this hardware checkpoint. discovery and BLE roles are unchanged;
 zero-argument connectivity is separate follow-up work.
@@ -68,7 +69,7 @@ available for byte/hash comparison. ATT MTU 517/value 514 was confirmed on an
 earlier run; the successful excerpts did not include negotiated MTU or fragment
 flags/count. no file sending,
 private messages, delivery receipts
-or full live-session reconnect are implemented.
+or general cross-platform reconnect are implemented.
 
 | path | evidence |
 | --- | --- |
@@ -184,14 +185,12 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 
 ### next work, in order
 
-the current stopping point is the **persistent known-phone room hardware retest**
-after the 2026-10-09 OS-error-38 exit. preserve the completed phone longer-text
-evidence in [long-text-checkpoint.md](long-text-checkpoint.md). the retest is in
-[reconnect.md](reconnect.md#known-phone-recovery-device-checkpoint). 61 unit tests, strict
-Linux/Windows checks, launcher and nine PTY cases pass; `--bin chatt3r` is
-rebuilt. phone numbered-ASCII longer text is physically confirmed; reconnect
-and native Windows longer text remain unverified. do not start wider discovery
-or role implementation from this result.
+the known-phone room and fixed retry check is **complete by user confirmation**;
+see [reconnect.md](reconnect.md#known-phone-recovery-device-checkpoint).
+preserve the separate phone longer-text evidence in
+[long-text-checkpoint.md](long-text-checkpoint.md). native Windows tests remain
+deferred; out-of-range recovery and broader discovery/roles are not established
+by this result. stop before starting another implementation milestone.
 
 1. **retain the two-way phone-on confirmation and, when practical, collect
    simultaneous console evidence in a repeat test** on the same pair.
