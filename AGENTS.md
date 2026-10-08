@@ -15,7 +15,10 @@ what has shipped. prefer observed results and current code over old roadmaps.
   user messages. general discovery, Windows recovery and role selection are
   separate follow-up work after this hardware gate.
 - the current public-text protocol candidate supports **1,024 UTF-8 bytes**
-  in software tests; longer text is **not yet radio-tested**. short text below
+  in software tests; the first laptop → iphone 100-byte radio test **failed**
+  while short text worked. reference-zlib level-5 compression now passes
+  independent outgoing canonical byte/signature tests; the phone retest is
+  pending. short text below
   100 bytes retains its previous wire/signing format. announcements/leave
   keep the <=99-byte uncompressed subset, text MTU stays 185, and file bounds
   and opt-in mode stay separate. see `docs/long-text-checkpoint.md`; stop at

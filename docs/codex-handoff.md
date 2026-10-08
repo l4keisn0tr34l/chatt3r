@@ -16,10 +16,17 @@ zero-argument lifecycle audit is complete; broader implementation waits for
 this physical gate.
 
 the pending protocol milestone is **bounded public text up to 1,024 UTF-8 bytes**,
-with compression, signing and receiver integration tests passing. longer
-text has **not been tested on the phone or native Windows radio**. the next
-checkpoint is [long-text-checkpoint.md](long-text-checkpoint.md): first
-regress short text, then verify 100/256/1,024-byte text on both screens.
+with compression, signing and receiver integration tests passing. the first
+**laptop → iphone 100-byte physical check failed to arrive**, while short
+text worked in the same connection. the reverse direction, larger sizes and
+native Windows longer text remain untested. a synthetic comparison reproduces
+different miniz/reference-zlib canonical bytes and failed signature verification
+after reference re-encoding; the actual phone rejection reason was not logged.
+see [long-text-checkpoint.md](long-text-checkpoint.md). a reference-zlib backend
+correction at level 5 now passes outgoing byte-for-byte preimage and packet
+checks against independent fixtures. the shared decoder also changes backend;
+file-receiver and malformed-stream tests pass. physical delivery remains
+unverified: regress short text and repeat 100 bytes both ways first.
 continue that physical test after short-text recovery passes. discovery and
 BLE roles are unchanged; zero-argument connectivity is separate follow-up work.
 

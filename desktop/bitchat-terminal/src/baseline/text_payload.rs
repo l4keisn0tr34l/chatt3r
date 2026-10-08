@@ -1,6 +1,6 @@
 //! Bounded public-text compression, following pinned Unlicensed BitFoundation.
-//! Raw DEFLATE bytes can differ between encoders; stock-phone signing
-//! compatibility must be checked on hardware, not inferred from round trips.
+//! Reference zlib level 5 matches Apple's documented COMPRESSION_ZLIB
+//! configuration; stock-phone compatibility still needs a physical test.
 use flate2::{write::DeflateEncoder, Compression, Decompress, FlushDecompress, Status};
 use std::io::Write;
 
@@ -33,7 +33,9 @@ pub fn compress_text(payload: &[u8], version: u8) -> Result<Option<Vec<u8>>, &'s
     if unique.iter().filter(|present| **present).count() * 10 >= payload.len().min(256) * 9 {
         return Ok(None);
     }
-    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(6));
+    // Swift verifies a canonical re-encoding of the decoded payload. A valid
+    // DEFLATE stream from another encoder is insufficient: its bytes must match.
+    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(5));
     encoder
         .write_all(payload)
         .map_err(|_| "text compression failed")?;

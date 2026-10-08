@@ -30,6 +30,8 @@ bluetooth adapter as a linux `hci` device. use **powershell on windows itself**.
    [visual studio build tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
    with the **desktop development with c++** workload and windows sdk. use
    rust's `x86_64-pc-windows-msvc` toolchain. downloads need internet once.
+   the reference-zlib compression backend also uses these C++ build tools
+   to compile its bundled C source; no separate zlib installation is required.
 3. open a **new** powershell window (so `cargo` is on your path). no admin
    powershell is needed for the build or normal chat.
 

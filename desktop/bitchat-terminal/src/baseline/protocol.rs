@@ -692,6 +692,20 @@ mod tests {
             local.version = packet.version;
             local.sign(&signing).unwrap();
             assert_eq!(local.is_compressed(), packet.is_compressed());
+            // Local round trips can hide a different compressor's canonical
+            // bytes. Stock Swift re-encodes decoded text before verifying it.
+            assert_eq!(
+                local.signing_bytes().unwrap(),
+                hex::decode(case["signing_hex"].as_str().unwrap()).unwrap(),
+                "outgoing canonical preimage: {}",
+                case["label"]
+            );
+            assert_eq!(
+                local.encode().unwrap(),
+                wire,
+                "outgoing signed packet: {}",
+                case["label"]
+            );
             for limit in [64, 128, 182] {
                 let mut assembler = Reassembler::default();
                 let parts = frames(&local, limit).unwrap();

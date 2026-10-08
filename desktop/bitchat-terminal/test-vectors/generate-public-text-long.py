@@ -19,7 +19,9 @@ public = key.public_key().public_bytes(
 def case(label, payload, version=1, compressed=True):
     width = 2 if version == 1 else 4
     if compressed:
-        encoder = zlib.compressobj(level=6, wbits=-15)
+        # Apple's documented COMPRESSION_ZLIB equivalent configuration.
+        encoder = zlib.compressobj(level=5, method=zlib.DEFLATED, wbits=-15,
+                                   memLevel=8, strategy=zlib.Z_DEFAULT_STRATEGY)
         deflate = encoder.compress(payload) + encoder.flush()
         assert zlib.decompress(deflate, wbits=-15) == payload
         wire_payload = len(payload).to_bytes(width, "big") + deflate
@@ -50,10 +52,13 @@ assert len(set(diverse)) >= 231 and len(diverse) == 1024
 
 cases = [case("unchanged-99", b"a" * 99, compressed=False),
          case("threshold-100", b"a" * 100),
+         case("numbered-100", b"".join(f"{i:04d}-".encode() for i in range(20))),
          case("text-256", b"hello nearby " * 19 + b"123456789"),
+         case("numbered-256", b"".join(f"{i:04d}-".encode() for i in range(52))[:256]),
+         case("numbered-1024", b"".join(f"{i:04d}-".encode() for i in range(205))[:1024]),
          case("unicode-1024-v1", "🙂".encode() * 256),
          case("unicode-1024-v2", "🙂".encode() * 256, version=2),
          case("diverse-1024", diverse, compressed=False)]
-assert len(bytes.fromhex(cases[2]["decoded_hex"])) == 256
-print(json.dumps(dict(description="synthetic signed public text; not Swift byte-identity or radio evidence",
+assert len(bytes.fromhex(next(c for c in cases if c["label"] == "text-256")["decoded_hex"])) == 256
+print(json.dumps(dict(description="synthetic signed public text; reference zlib at Apple's documented settings, not Apple execution or radio evidence",
                      seed_hex="42" * 32, public_key_hex=public.hex(), cases=cases), indent=2))
