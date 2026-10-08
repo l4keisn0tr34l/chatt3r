@@ -6,14 +6,22 @@ engineering state and next physical test. [README.md](README.md) has setup,
 and [context.md](context.md) describes the long-term goal, **not** necessarily
 what has shipped. prefer observed results and current code over old roadmaps.
 
+- known-phone direct LE with `--wait-for-peer` now returns to waiting after
+  a write failure, disconnect or notification stream closure. this is
+  software-tested only; the next physical gate is app close/reopen and fresh
+  short text both ways without restarting the laptop client. see
+  `docs/reconnect.md`. preserve per-run file quota and duplicate history,
+  require fresh announced keys, discard partial assemblies, and never replay
+  user messages. general discovery, Windows recovery and role selection are
+  separate follow-up work after this hardware gate.
 - the current public-text protocol candidate supports **1,024 UTF-8 bytes**
   in software tests; longer text is **not yet radio-tested**. short text below
   100 bytes retains its previous wire/signing format. announcements/leave
   keep the <=99-byte uncompressed subset, text MTU stays 185, and file bounds
   and opt-in mode stay separate. see `docs/long-text-checkpoint.md`; stop at
-  the prepared iPhone/Windows hardware checkpoint. zero-argument connectivity
-  is deferred; do not investigate or refactor startup, discovery or BLE roles
-  during this milestone.
+  the prepared iPhone/Windows hardware checkpoint after the known-phone
+  recovery check. zero-argument connectivity was audited but remains deferred;
+  do not change discovery or BLE roles during this recovery slice.
 - preserve user-confirmed linux ↔ iphone direct-le text and windows → iphone
   central/client paths. linux ↔ windows pc **two-way public text** is also
   user-confirmed over BLE with iphone Bluetooth off on the stock service.

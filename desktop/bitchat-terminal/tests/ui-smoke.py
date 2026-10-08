@@ -22,7 +22,7 @@ binary = next(r["executable"] for r in records
               if r.get("reason") == "compiler-artifact" and r.get("executable"))
 
 
-def run_case(test, *, no_color=False, exit_key=None):
+def run_case(test, *, no_color=False, exit_key=None, module="ui::tests", recovery=False):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     before = termios.tcgetattr(slave)
@@ -31,7 +31,7 @@ def run_case(test, *, no_color=False, exit_key=None):
     if no_color:
         env["NO_COLOR"] = "1"
     proc = subprocess.Popen(
-        [binary, "--exact", f"ui::tests::{test}", "--ignored", "--nocapture", "--test-threads=1"],
+        [binary, "--exact", f"{module}::{test}", "--ignored", "--nocapture", "--test-threads=1"],
         stdin=slave, stdout=slave, stderr=slave, env=env,
     )
     data = b""
@@ -42,7 +42,11 @@ def run_case(test, *, no_color=False, exit_key=None):
             readable, _, _ = select.select([master], [], [], 0.1)
             if readable:
                 data += os.read(master, 65536)
-            if b"you> " in data and not typed:
+            prompt_data = data
+            if recovery:
+                marker = b"stream closed; starting fresh session"
+                prompt_data = data.split(marker, 1)[1] if marker in data else b""
+            if b"you> " in prompt_data and not typed:
                 os.write(master, exit_key if exit_key is not None else b"dra")
                 typed = True
             if exit_key is None and b"incoming during draft" in data and typed and not completed:
@@ -54,6 +58,9 @@ def run_case(test, *, no_color=False, exit_key=None):
             raise RuntimeError(f"PTY test timed out: {data!r}")
         assert proc.returncode == 0, data
         assert termios.tcgetattr(slave) == before, "terminal mode not restored"
+        if recovery:
+            assert b"stream closed; starting fresh session" in data, data
+            assert typed, "fresh session did not receive the exit key"
         if exit_key is None:
             assert b"incoming during draft" in data, data
             assert completed, "test did not send the full draft"
@@ -72,4 +79,8 @@ run_case("incoming_output_preserves_draft")
 run_case("incoming_output_preserves_draft", no_color=True)
 run_case("exit_event_returns_none", exit_key=b"\x03")
 run_case("exit_event_returns_none", exit_key=b"\x04")
-print("4 PTY cases passed: draft redraw, NO_COLOR, Ctrl-C, Ctrl-D; terminal mode restored.")
+run_case("stream_closure_restores_terminal_then_fresh_session_exits",
+         module="tests", recovery=True, exit_key=b"\x03")
+run_case("stream_closure_restores_terminal_then_fresh_session_exits",
+         module="tests", recovery=True, exit_key=b"\x04")
+print("6 PTY cases passed: draft redraw, NO_COLOR, Ctrl-C, Ctrl-D, stream closure and fresh-session exits; terminal mode restored.")

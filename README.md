@@ -18,6 +18,7 @@ JPEG saves have been verified locally, including a repeat and two larger images.
 | linux ↔ stock iphone bitchat text | user-confirmed on real devices |
 | quiet chat, colored nicknames, editable input | implemented; terminal-tested |
 | startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait (closed-app wait observed, reopen transition pending) |
+| known-phone connection recovery | `--direct-le` with `--wait-for-peer` returns to waiting after a failed write or lost link; software-tested, physical close/reopen and reconnect pending. no user-message replay |
 | known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
 | longer text / compression | **software-tested up to 1,024 UTF-8 bytes** with bounded public-text compression/signing; iPhone and native Windows radio validation pending. previously confirmed text remains the short subset |
 | public file receive | opt-in `--receive-files <existing-dir>` on Linux phone link; **four iPhone JPEG saves verified locally**: 3,485 bytes twice with identical hashes, plus 39,907 and 44,478 bytes; all fully decode. user visually confirmed the first image; original-byte/hash comparison unavailable. earlier MTU 517/value 514 and full 504-byte fragments were confirmed; the earlier 46-part image and compressed-fragment behavior still need specific radio evidence. no sending, private files, or general media guarantee |
@@ -190,7 +191,7 @@ chatt3r --debug --scan-seconds 90
 | bitchat characteristic unavailable | a live address may carry a cached uuid; the client skips it and looks for another |
 | notification subscription times out | setup retries up to three times; keep the iphone unlocked |
 | connected, but waiting for an announcement | wait for a peer; try a short iphone nickname and inspect debug logs |
-| chat disconnects | quit/restart; live-session recovery isn't implemented yet |
+| chat disconnects | known-phone direct LE with `--wait-for-peer` waits and reconnects; other paths still require restarting. check receipt before manually resending |
 | text is rejected | check the byte limit and the debug rejection reason |
 
 startup retries disconnect only the selected peer, not the adapter, and don't

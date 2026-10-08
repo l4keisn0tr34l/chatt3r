@@ -81,10 +81,11 @@ what to look for:
   the iphone unlocked. this does not restart bluetooth or change pairings.
 - `connected and subscribed`, then `iphone is nearby`: the link is ready. try
   `hi` in both directions before anything longer.
-- connection drops during chat: quit/restart the client. startup retry isn't
-  live-session recovery, and messages are never automatically replayed.
-- rejected packet: `--debug` shows the reason. the current codec only supports
-  short, uncompressed public text and short announcements.
+- connection drops during chat: direct LE with `--wait-for-peer` returns to
+  waiting for the same configured phone. ordinary scan/client and Windows
+  host paths still require restarting. messages are never automatically replayed.
+- rejected packet: `--debug` shows the reason. public text up to 1,024 UTF-8
+  bytes is software-tested; longer-text phone compatibility remains pending.
 
 ## if bluez picks the phone's audio profile instead of bitchat le
 
@@ -106,11 +107,11 @@ this linux-only path opens a direct le att socket, verifies the bitchat gatt
 service and notify/write characteristic, subscribes, then uses the **same**
 packet validator and terminal chat. it does not unpair, reset bluetooth, or
 switch on a file-transfer feature. the 128-byte frame limit is capped against
-the negotiated att mtu. its known hardware evidence is a signed peer
-announcement and clean `/quit`; two-way text on this new path still needs your
-confirmation. only use an address you identified; it does **not** search every
-nearby phone. if it disconnects after moving out of range, restart the command:
-live-session resume and automatic message replay are not implemented.
+the negotiated att mtu. two-way short text is user-confirmed on physical
+devices. only use an address you identified; it does **not** search every
+nearby phone. add `--wait-for-peer` to keep waiting after a lost link; without
+it this explicit command still exits on link failure. recovery is currently
+software-tested and needs the device checkpoint below.
 
 once you've confirmed text in both directions, you can make the plain launcher
 use that phone without publishing your address. put this in **your own**
@@ -123,11 +124,47 @@ export CHATT3R_LE_PEER=AA:BB:CC:DD:EE:FF
 `chatt3r` will use direct le **and wait for the phone app to become ready**;
 `chatt3r --debug` shows each setup attempt. you can start it before opening
 bitchat; ctrl-c cancels. the client backs off from five to 30 seconds between
-failed startup attempts, but cannot launch the ios app or promise background
-advertising.
+failed startup attempts. after a write failure, disconnect or notification
+stream closure, it releases the old connection and returns to waiting with
+the same bounded backoff. it sends fresh presence on the next connection;
+user messages and incomplete files are not replayed. fresh peer announcements
+are required, while duplicate-message history and the per-run file quota
+remain bounded across reconnects. an unfinished terminal draft is discarded
+when the failed session closes. it cannot launch the ios app or promise
+background advertising. permission, configuration and unsupported-adapter
+failures still exit rather than retrying forever.
 `--scan-only`, `--doctor`, `--build`, and an explicit `--direct-le` still do what
 you ask. without the local setting, opt in with `--direct-le <address>
 --wait-for-peer`. this setting is only on your machine, not in the git repo.
+
+## known-phone recovery: device checkpoint
+
+status: software tests pass; physical reconnection is not yet confirmed.
+use the existing local saved-phone setting, with file mode off for this first
+check. quit any old client first, then:
+
+```bash
+./scripts/chatt3r --build
+./scripts/chatt3r --name laptop --debug
+```
+
+1. keep BitChat foregrounded on the unlocked iphone. wait for a signed peer
+   announcement, exchange short numbered text both ways and check both screens.
+2. close the iphone app, leaving the laptop process running. when the phone
+   link ends, expect a waiting/retry message rather than a shell prompt.
+3. reopen BitChat in its Bluetooth public chat. expect a new connection and
+   signed announcement; exchange new numbered text both ways without restarting
+   the laptop client. allow for the five-to-30-second retry delay and setup time.
+4. test `/quit` while connected. on a separate run, close the app and test
+   Ctrl-C while waiting; both should return to the shell with normal editing.
+
+if closing the app does not end the link, record that observation rather than
+claiming a reconnect. an out-of-range/return test can establish link recovery
+separately. share only sanitized status/error lines and whether text arrived;
+no device addresses, peer IDs, private text or full transcripts. check the
+other screen before resending any message whose delivery was uncertain.
+after short-text recovery passes, continue
+[the longer-text checkpoint](long-text-checkpoint.md).
 
 ## commands inside chat
 
@@ -191,9 +228,10 @@ chatt3r --help
 
 - 128 is the outgoing frame limit, including protocol overhead. it isn't a
   measured mtu, and it isn't the text-length limit.
-- text is limited to **99 utf-8 bytes**. 500 characters / 500 bytes won't work
-  yet. longer outgoing text is rejected; longer incoming text is dropped.
+- the software text cap is **1,024 utf-8 bytes**; previously confirmed text
+  was the <=99-byte subset. longer-text radio validation is still pending.
 - public chat isn't encrypted. use test text, not secrets.
-- phone photos/voice notes and arbitrary files aren't supported by chatt3r yet.
+- four iphone JPEG receives are verified in opt-in file mode. file sending,
+  private media and general media compatibility are not implemented.
 - the script does not need internet to start an already-built client. it builds
   offline if the binary is missing and keeps your terminal attached for editing.

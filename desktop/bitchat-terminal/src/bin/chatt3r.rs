@@ -265,6 +265,14 @@ enum LinkWriter<'a> {
     Direct(std::sync::Arc<linux_att::DirectAtt>),
     #[cfg(windows)]
     WindowsHost(std::sync::Arc<windows_gatt::GattHost>),
+    #[cfg(test)]
+    Test(&'a TestLink),
+}
+
+#[cfg(test)]
+struct TestLink {
+    writes: std::cell::RefCell<Vec<Vec<u8>>>,
+    fail_after: usize,
 }
 
 impl LinkWriter<'_> {
@@ -275,6 +283,8 @@ impl LinkWriter<'_> {
             LinkWriter::Direct(link) => Ok(link.is_connected()),
             #[cfg(windows)]
             LinkWriter::WindowsHost(host) => host.connected(),
+            #[cfg(test)]
+            LinkWriter::Test(_) => Ok(true),
         }
     }
     fn write_limit(&self, configured: usize) -> Result<usize> {
@@ -284,6 +294,8 @@ impl LinkWriter<'_> {
             LinkWriter::Direct(link) => Ok(configured.min(link.max_value())),
             #[cfg(windows)]
             LinkWriter::WindowsHost(host) => Ok(configured.min(host.max_value()?)),
+            #[cfg(test)]
+            LinkWriter::Test(_) => Ok(configured),
         }
     }
     fn wait_for_announcement(&self) -> bool {
@@ -310,9 +322,34 @@ impl LinkWriter<'_> {
             LinkWriter::Direct(link) => link.write(frame).await?,
             #[cfg(windows)]
             LinkWriter::WindowsHost(host) => host.write(frame).await?,
+            #[cfg(test)]
+            LinkWriter::Test(link) => {
+                let mut writes = link.writes.borrow_mut();
+                if writes.len() == link.fail_after {
+                    return Err(std::io::Error::other("simulated ATT write rejection").into());
+                }
+                writes.push(frame.to_vec());
+            }
         }
         Ok(())
     }
+}
+
+/// Only transport failures enter the known-phone recovery loop. Local UI,
+/// configuration and protocol errors remain fatal rather than retrying forever.
+#[derive(Debug)]
+struct LinkFailure(String);
+
+impl std::fmt::Display for LinkFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Error for LinkFailure {}
+
+fn link_failure(details: impl Into<String>) -> Box<dyn Error> {
+    Box::new(LinkFailure(details.into()))
 }
 
 fn write_error_message(details: &str) -> String {
@@ -341,8 +378,9 @@ async fn send(
     ))?;
     for frame in frames {
         timeout(Duration::from_secs(10), writer.write(&frame))
-            .await?
-            .map_err(|e| write_error_message(&e.to_string()))?;
+            .await
+            .map_err(|_| link_failure("BLE write timed out; delivery is unknown"))?
+            .map_err(|e| link_failure(write_error_message(&e.to_string())))?;
         sleep(Duration::from_millis(20)).await;
     }
     Ok(()) // GATT success is not a remote message delivery acknowledgement.
@@ -369,6 +407,15 @@ impl Receiver {
             seen: HashSet::new(),
             order: VecDeque::new(),
         }
+    }
+
+    fn begin_session(&mut self, local: [u8; 8]) {
+        self.local = local;
+        self.peers.clear();
+        self.assembler = Reassembler::default();
+        self.file_fragments = file_fragments::FileFragments::default();
+        // Keep decoded-message deduplication and the file store's per-run quota.
+        // Never carry partial assemblies or announced keys across BLE links.
     }
 
     fn receive(&mut self, bytes: &[u8], output: &ui::Output) -> Result<()> {
@@ -704,6 +751,7 @@ async fn chat(
     writer: LinkWriter<'_>,
     mut notifications: BoxStream<'static, ValueNotification>,
     options: &Options,
+    receiver: &mut Receiver,
 ) -> Result<()> {
     let secret = StaticSecret::random_from_rng(OsRng);
     let noise_public = PublicKey::from(&secret).to_bytes();
@@ -740,15 +788,16 @@ async fn chat(
                 "[ble] configured write limit={limit} bytes; negotiated ATT MTU={} bytes",
                 link.max_value() + 3
             ),
+            #[cfg(test)]
+            LinkWriter::Test(_) => {}
         }
     }
     println!(
         "Connected as {}. Public chat — not encrypted; max {MAX_TEXT_BYTES} UTF-8 bytes.",
         display(&options.name)
     );
-    let mut receiver = Receiver::new(local);
+    receiver.begin_session(local);
     if let Some(directory) = &options.receive_files {
-        receiver.incoming_files = Some(IncomingFiles::new(directory)?);
         println!("Receive-only files enabled: small signed public files saved as .bin in {} (no auto-open; first radio test)", display(&directory.to_string_lossy()));
     }
     let mut initial_announce = Packet::new(ANNOUNCE, local, now_ms(), announce_payload.clone());
@@ -777,7 +826,7 @@ async fn chat(
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
             _ = link_tick.tick() => {
-                if !writer.connected().await? { return Err("BLE disconnected; rerun to reconnect".into()); }
+                if !writer.connected().await.map_err(|e| link_failure(e.to_string()))? { return Err(link_failure("BLE disconnected")); }
             }
             _ = announce_tick.tick() => {
                 if !can_announce(wait_for_announcement, receiver.peers.len()) { continue; }
@@ -812,7 +861,7 @@ async fn chat(
                 output.diagnostic("[tx] BLE frame submitted; verify receipt on the other peer (no application ACK).")?;
             }
             notification = notifications.next() => {
-                let Some(notification) = notification else { return Err("notification stream ended; rerun to reconnect".into()); };
+                let Some(notification) = notification else { return Err(link_failure("notification stream ended")); };
                 if notification.uuid != CHARACTERISTIC { continue; }
                 let is_fragment = notification.value.get(1) == Some(&FRAGMENT);
                 if is_fragment { observed_fragments += 1; }
@@ -870,6 +919,14 @@ fn direct_retry_delay(attempt: u64) -> Duration {
 }
 
 #[cfg(target_os = "linux")]
+fn retry_direct_session(wait: bool, result: &Result<()>) -> bool {
+    wait && result
+        .as_ref()
+        .err()
+        .is_some_and(|error| error.is::<LinkFailure>())
+}
+
+#[cfg(target_os = "linux")]
 fn file_frame_fits(value_limit: usize) -> bool {
     value_limit >= 504 // observed iPhone public-file fragment, not a general size guarantee
 }
@@ -921,6 +978,10 @@ async fn main() -> Result<()> {
     let Some(options) = options()? else {
         return Ok(());
     };
+    let mut chat_receiver = Receiver::new([0; 8]);
+    if let Some(directory) = &options.receive_files {
+        chat_receiver.incoming_files = Some(IncomingFiles::new(directory)?);
+    }
     #[cfg(not(windows))]
     if options.host {
         return Err("--host requires native Windows GATT server support".into());
@@ -947,7 +1008,13 @@ async fn main() -> Result<()> {
                 })
             })
             .boxed();
-        return chat(LinkWriter::WindowsHost(host), notifications, &options).await;
+        return chat(
+            LinkWriter::WindowsHost(host),
+            notifications,
+            &options,
+            &mut chat_receiver,
+        )
+        .await;
     }
     #[cfg(not(target_os = "linux"))]
     if options.direct_le.is_some() {
@@ -958,37 +1025,60 @@ async fn main() -> Result<()> {
         if options.debug {
             println!("[ble] direct LE ATT for {address}; no BlueZ profile auto-connect, pairing unchanged");
         }
-        let Some(link) = connect_direct(
-            address,
-            options.wait_for_peer,
-            options.debug,
-            options.receive_files.is_some(),
-        )
-        .await?
-        else {
-            return Ok(());
-        };
-        if options.debug {
-            println!("[ble] direct LE connected, GATT verified, notifications enabled; negotiated ATT MTU={} (value limit={})", link.max_value() + 3, link.max_value());
-        }
-        if options.receive_files.is_some() && !file_frame_fits(link.max_value()) {
-            return Err(format!("negotiated ATT value limit {} is below the observed 504-byte iPhone file fragment; cannot safely receive this image on this link. text remains available without --receive-files. no pairing changes needed", link.max_value()).into());
-        }
-        let receiver = link.take_notifications().await?;
-        let notifications: BoxStream<'static, ValueNotification> =
-            futures::stream::unfold(receiver, |mut rx| async move {
-                rx.recv().await.map(|value| {
-                    (
-                        ValueNotification {
-                            uuid: CHARACTERISTIC,
-                            value,
-                        },
-                        rx,
-                    )
+        let mut recovery_attempt = 0u64;
+        loop {
+            let Some(link) = connect_direct(
+                address,
+                options.wait_for_peer,
+                options.debug,
+                options.receive_files.is_some(),
+            )
+            .await?
+            else {
+                return Ok(());
+            };
+            if options.debug {
+                println!("[ble] direct LE connected, GATT verified, notifications enabled; negotiated ATT MTU={} (value limit={})", link.max_value() + 3, link.max_value());
+            }
+            if options.receive_files.is_some() && !file_frame_fits(link.max_value()) {
+                return Err(format!("negotiated ATT value limit {} is below the observed 504-byte iPhone file fragment; cannot safely receive this image on this link. text remains available without --receive-files. no pairing changes needed", link.max_value()).into());
+            }
+            let receiver = link.take_notifications().await?;
+            let notifications: BoxStream<'static, ValueNotification> =
+                futures::stream::unfold(receiver, |mut rx| async move {
+                    rx.recv().await.map(|value| {
+                        (
+                            ValueNotification {
+                                uuid: CHARACTERISTIC,
+                                value,
+                            },
+                            rx,
+                        )
+                    })
                 })
-            })
-            .boxed();
-        return chat(LinkWriter::Direct(link), notifications, &options).await;
+                .boxed();
+            // Also cancel during initial/fragmented writes, before chat can
+            // poll its input branch. Dropping the future releases this ATT link.
+            let result = tokio::select! {
+                _ = tokio::signal::ctrl_c() => Ok(()),
+                result = chat(LinkWriter::Direct(link), notifications, &options, &mut chat_receiver) => result,
+            };
+            if !retry_direct_session(options.wait_for_peer, &result) {
+                return result;
+            }
+            // chat has returned and dropped its terminal input, notification stream
+            // and ATT link before retrying. Only a new presence announcement is sent.
+            recovery_attempt = recovery_attempt.saturating_add(1);
+            let pause = direct_retry_delay(recovery_attempt);
+            if options.debug {
+                eprintln!("[ble] session ended: {}", result.unwrap_err());
+            }
+            println!("Phone link ended; waiting for the same phone again in {}s. No message was replayed; check the other screen before resending. ctrl-c cancels.", pause.as_secs());
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => return Ok(()),
+                _ = sleep(pause) => {},
+            }
+        }
     }
     if options.debug {
         println!("[debug] BLE diagnostics enabled; --help prints usage");
@@ -1078,6 +1168,7 @@ async fn main() -> Result<()> {
                     LinkWriter::BlueZ(&peripheral, &characteristic),
                     notifications,
                     &options,
+                    &mut chat_receiver,
                 )
                 .await
             }
@@ -1109,6 +1200,144 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn failed_fragment_write_stops_packet_and_allows_only_opted_in_recovery() {
+        let options = parse_options(["--write-limit", "64"].map(str::to_owned))
+            .unwrap()
+            .unwrap();
+        let link = TestLink {
+            writes: Default::default(),
+            fail_after: 1,
+        };
+        let mut receiver = Receiver::new([0; 8]);
+        let result = chat(
+            LinkWriter::Test(&link),
+            futures::stream::pending().boxed(),
+            &options,
+            &mut receiver,
+        )
+        .await;
+        assert!(result.as_ref().unwrap_err().is::<LinkFailure>());
+        // The first announcement fragment was submitted; subsequent parts
+        // stop on rejection, and there is no automatic second packet attempt.
+        assert_eq!(link.writes.borrow().len(), 1);
+        assert_eq!(
+            Packet::decode(&link.writes.borrow()[0]).unwrap().kind,
+            FRAGMENT
+        );
+        #[cfg(target_os = "linux")]
+        {
+            assert!(retry_direct_session(true, &result));
+            assert!(!retry_direct_session(false, &result));
+            assert!(!retry_direct_session(true, &Ok(()))); // /quit, Ctrl-C, EOF
+            assert!(!retry_direct_session(
+                true,
+                &Err("invalid configuration".into())
+            ));
+        }
+    }
+
+    #[test]
+    fn new_session_requires_fresh_keys_and_preserves_duplicate_cache_and_file_quota() {
+        use bitchat_poc::file_packet::FilePayload;
+        let directory = std::env::temp_dir().join(format!(
+            "chatt3r-session-test-{}",
+            hex::encode(rand::random::<[u8; 16]>())
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let key = SigningKey::from_bytes(&[0x42; 32]);
+        let noise = [9; 32];
+        let sender = protocol::peer_id(&noise);
+        let mut receiver = Receiver::new([8; 8]);
+        receiver.incoming_files = Some(IncomingFiles::new(&directory).unwrap());
+        let output = ui::Output::plain(false);
+        let mut announce = Packet::new(
+            ANNOUNCE,
+            sender,
+            now_ms(),
+            protocol::announcement("test", &noise, &key.verifying_key()).unwrap(),
+        );
+        announce.sign(&key).unwrap();
+        receiver
+            .receive(&announce.encode().unwrap(), &output)
+            .unwrap();
+        let mut message = Packet::new(MESSAGE, sender, now_ms(), b"already received".to_vec());
+        message.sign(&key).unwrap();
+        let wire = message.encode().unwrap();
+        receiver.receive(&wire, &output).unwrap();
+        let file = FilePayload {
+            file_name: None,
+            mime_type: Some("application/octet-stream".into()),
+            content: vec![1],
+        };
+        for index in 0..16 {
+            if index == 8 {
+                receiver.begin_session([7; 8]);
+                assert!(receiver.peers.is_empty());
+                assert_eq!(receiver.seen.len(), 1);
+                assert!(receiver.receive(&wire, &output).is_err()); // needs a fresh announcement
+                receiver
+                    .receive(&announce.encode().unwrap(), &output)
+                    .unwrap();
+                receiver.receive(&wire, &output).unwrap(); // remains a duplicate
+                assert_eq!(receiver.seen.len(), 1);
+            }
+            receiver
+                .incoming_files
+                .as_mut()
+                .unwrap()
+                .save(&file)
+                .unwrap();
+        }
+        assert!(receiver
+            .incoming_files
+            .as_mut()
+            .unwrap()
+            .save(&file)
+            .is_err());
+        for entry in std::fs::read_dir(&directory).unwrap() {
+            std::fs::remove_file(entry.unwrap().path()).unwrap();
+        }
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an interactive PTY"]
+    async fn stream_closure_restores_terminal_then_fresh_session_exits() {
+        let options = parse_options(["--write-limit", "128"].map(str::to_owned))
+            .unwrap()
+            .unwrap();
+        let link = TestLink {
+            writes: Default::default(),
+            fail_after: usize::MAX,
+        };
+        let mut receiver = Receiver::new([0; 8]);
+        let result = chat(
+            LinkWriter::Test(&link),
+            futures::stream::empty().boxed(),
+            &options,
+            &mut receiver,
+        )
+        .await;
+        assert!(result.as_ref().unwrap_err().is::<LinkFailure>());
+        #[cfg(target_os = "linux")]
+        assert!(retry_direct_session(true, &result));
+        println!("stream closed; starting fresh session");
+        chat(
+            LinkWriter::Test(&link),
+            futures::stream::pending().boxed(),
+            &options,
+            &mut receiver,
+        )
+        .await
+        .unwrap();
+        // Only presence/leave traffic was sent, never a user message replay.
+        assert!(link.writes.borrow().iter().all(|wire| {
+            let packet = Packet::decode(wire).unwrap();
+            packet.kind == LEAVE || (packet.kind == FRAGMENT && packet.payload[12] == ANNOUNCE)
+        }));
+    }
 
     #[test]
     fn disappeared_gatt_object_is_not_misdiagnosed_as_frame_size() {

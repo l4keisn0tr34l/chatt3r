@@ -3,13 +3,25 @@
 for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
 
-current software milestone: **bounded public text up to 1,024 UTF-8 bytes**,
+current software checkpoint: **known-phone connection recovery** with direct
+LE `--wait-for-peer`. failed writes, disconnects and notification closure now
+return to waiting for the same phone. 59 unit tests, strict Linux/Windows
+checks, launcher smoke and six PTY cases pass; the binary is rebuilt.
+**physical reconnect is unconfirmed**. the next gate is
+[app close/reopen and short text both ways](reconnect.md#known-phone-recovery-device-checkpoint)
+without restarting the laptop. only fresh presence is sent; duplicate history
+and per-run file quota persist, while keys and partial assemblies reset.
+general scanning, Windows recovery and BLE roles are unchanged. the
+zero-argument lifecycle audit is complete; broader implementation waits for
+this physical gate.
+
+the pending protocol milestone is **bounded public text up to 1,024 UTF-8 bytes**,
 with compression, signing and receiver integration tests passing. longer
 text has **not been tested on the phone or native Windows radio**. the next
 checkpoint is [long-text-checkpoint.md](long-text-checkpoint.md): first
 regress short text, then verify 100/256/1,024-byte text on both screens.
-this session stops there. startup, discovery and BLE roles are unchanged;
-zero-argument connectivity is deferred to a separate task.
+continue that physical test after short-text recovery passes. discovery and
+BLE roles are unchanged; zero-argument connectivity is separate follow-up work.
 
 current snapshot: **user-confirmed two-way public text over BLE between the
 Linux laptop and Windows PC**, first on the stock service with iphone Bluetooth
@@ -148,11 +160,11 @@ characteristic rather than suggesting MTU. do not auto-replay messages.
 
 ### next work, in order
 
-the current session's stopping point is the **prepared longer-text hardware
-checkpoint**, not the deferred connectivity audit. use
-[long-text-checkpoint.md](long-text-checkpoint.md) before the backlog below.
-57 Linux unit tests, strict Linux/Windows checks, launcher and four PTY cases
-pass; `--bin chatt3r` is rebuilt. all longer-text evidence is software-only.
+the current stopping point is the **known-phone recovery hardware check** in
+[reconnect.md](reconnect.md#known-phone-recovery-device-checkpoint), followed
+by [long-text-checkpoint.md](long-text-checkpoint.md). 59 unit tests, strict
+Linux/Windows checks, launcher and six PTY cases pass; `--bin chatt3r` is
+rebuilt. reconnect and longer-text evidence remain software-only.
 
 1. **retain the two-way phone-on confirmation and, when practical, collect
    simultaneous console evidence in a repeat test** on the same pair.
@@ -173,8 +185,9 @@ pass; `--bin chatt3r` is rebuilt. all longer-text evidence is software-only.
    session as regression evidence. record Wi-Fi/cellular switch states if
    measuring a fully offline run.
 3. test Windows `/quit`/Ctrl-C and Linux teardown, out-of-range behavior and
-   restart explicitly. the client does not reconnect an established session
-   or provide application delivery ACKs.
+   restart explicitly. only known-phone direct-LE wait mode has a
+   software-tested reconnect candidate. desktop/Windows recovery and
+   application delivery ACKs remain absent.
 4. **compare known sender bytes and retain specific compression evidence:** one
    small public iPhone JPEG has now been saved after rebuilding. local checks
    found **3,485 bytes, JPEG 252×448 RGB, mode 0600**, with the SHA-256 matching

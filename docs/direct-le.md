@@ -4,10 +4,12 @@
 
 **what changed:** an explicit `--direct-le <phone-address>` transport bypasses
 bluez's generic paired-device `connect()` for linux ↔ iphone. optional
-`--wait-for-peer` retries *startup setup only* with a five-to-30-second
-backoff so chat can be launched before the iphone app is foregrounded. normal bluez
-scanning/chat remains the default. neither path unpairs, restarts bluetooth, or
-replays a chat message. this is a direct link, **not** a live-session resume.
+`--wait-for-peer` retries startup setup and now returns to waiting after a
+failed write, disconnect or notification stream closure. the five-to-30-second
+backoff permits starting before the iphone app is foregrounded. connection
+recovery is software-tested; physical reconnect remains unverified. normal
+bluez scanning/chat remains the default. neither path unpairs, restarts
+bluetooth or replays a user message. reconnect starts a fresh chat session.
 
 **why it exists:** on this laptop, an unlocked iphone running app store bitchat
 v1.7.1 advertised the **mainnet** service uuid on a connectable le address.
@@ -49,6 +51,27 @@ iphone advertises mainnet bitchat service
 - `scripts/chatt3r`: supplies the operator's default 128-byte write limit.
   direct le additionally caps frames to negotiated att mtu minus three bytes.
 
+**known-phone recovery data flow:** `send` and `chat` classify transport
+failures as `LinkFailure`; only the direct-LE wait-mode loop in `main` handles
+them. the old chat input, notification stream and ATT link are dropped before
+backoff and `connect_direct` establishes a fresh link to the same address.
+`Receiver::begin_session` clears announced keys and partial text/file
+assemblies, requiring a new signed announcement. the receiver lives for the
+process so duplicate history and `IncomingFiles`' 16-save quota survive
+reconnects. only fresh presence is sent; no user-message queue is replayed.
+Ctrl-C also cancels initial/fragmented writes on this path. local errors
+remain fatal, and ordinary BlueZ/Windows sessions retain their existing exit
+behavior. codec, compression, signing, discovery filters, roles and MTUs were
+not changed. this recovery loop is chatt3r work, not an upstream guarantee.
+
+59 unit tests, strict Linux/Windows checks, launcher smoke and six PTY cases
+pass. fault injection checks interrupted announcement writes and retry
+classification; receiver tests check fresh-key requirements, duplicate history
+and file quota; PTY tests check stream closure followed by fresh-session
+Ctrl-C/Ctrl-D exits and restored terminal modes. these tests do not exercise
+the phone radio or prove its app can reopen and accept the new link. see the
+[device checkpoint](reconnect.md#known-phone-recovery-device-checkpoint).
+
 **upstream versus chatt3r:** bitchat's service/characteristic identifiers,
 packets and fragmentation are reused. linux l2cap/att recovery and the
 backend boundary are chatt3r-specific. this does not implement a peripheral
@@ -76,7 +99,10 @@ confirmed **MTU 517/value limit 514**, full 504-byte file fragments and
 short public text. it did **not** save the image: 46 file fragments exceeded
 the former 16 KiB collector cap. the bounded file-only collector now permits
 ~65 KiB outer packets and conditional raw-DEFLATE fragment parsing; neither
-change has yet been retested on the phone. text-only default remains 185.
+change alone proves its specific radio behavior. subsequent tests saved four
+valid JPEGs, including repeated and larger decoded content; exact encoded
+assembly sizes and compressed-fragment metadata remain unavailable.
+text-only default remains 185.
 if an ATT value limit below 504 is negotiated, file mode refuses the test
 rather than accepting incomplete fragments. no bond or adapter changes are
 required.
@@ -93,8 +119,8 @@ and `[you] yea`. the user subsequently confirmed **both directions work,
 including a fully offline iphone run**. this is user-confirmed physical
 bidirectional text on the new backend, not merely a completed GATT write.
 exact radio-switch settings and repetitions have not been recorded.
-out-of-range reconnect still requires restarting the client; the next
-milestone is a no-unpairing range/reconnect test. with the iphone app closed,
+wait mode now retries after a lost link, but out-of-range and app close/reopen
+recovery still need physical tests. with the iphone app closed,
 a physical `--wait-for-peer` probe reported missing BitChat GATT service and
 kept retrying without sending chat packets; it did not unpair or restart the
 adapter. the **closed app → reopened app → connected** transition still needs
@@ -107,4 +133,4 @@ settings pairing. a paired dual-mode identity can confuse bluez's generic
 classic-versus-le connection choice; the direct backend requests le explicitly.
 this does not make linux advertise. desktop ↔ desktop work still requires a
 separate bluez advertising/gatt-server backend and role coordination, as
-outlined in `codexguide.md`.
+outlined in [laptop-to-laptop.md](laptop-to-laptop.md).
