@@ -1,4 +1,4 @@
-//! Linux-only LE ATT path for dual-mode phones whose BlueZ Device1.Connect
+//! Linux-only LE ATT for known phones and bounded live service probes. Device1.Connect
 //! chooses classic Bluetooth profiles. No pairing, adapter reset, or message
 //! replay. ATT and GATT parsing live here; packet validation stays upstream.
 use std::io;
@@ -13,10 +13,17 @@ use uuid::Uuid;
 
 const ATT_CID: u16 = 4;
 const LE_PUBLIC: u8 = 1;
+const LE_RANDOM: u8 = 2;
 const NOTIFY: u8 = 0x1b;
 const MAX_ATT: usize = 517;
 pub const TEXT_ATT_MTU: u16 = 185;
 pub const FILE_ATT_MTU: u16 = 517; // opt-in attempt to fit observed 504-byte file values (+3 ATT)
+
+#[derive(Clone, Copy)]
+pub enum AddressType {
+    Public,
+    Random,
+}
 
 #[repr(C)]
 struct L2Addr {
@@ -61,6 +68,30 @@ pub fn setup_errno(error: &io::Error) -> Option<i32> {
             .source
             .raw_os_error()
     })
+}
+
+pub fn fatal_probe_error(error: &io::Error) -> bool {
+    matches!(
+        setup_errno(error),
+        Some(
+            libc::EACCES
+                | libc::EPERM
+                | libc::ENODEV
+                | libc::ENETDOWN
+                | libc::EPROTONOSUPPORT
+                | libc::EAFNOSUPPORT
+                | libc::EOPNOTSUPP
+        )
+    ) || (error.kind() == io::ErrorKind::Unsupported && setup_errno(error) != Some(libc::ENOSYS))
+        || error
+            .get_ref()
+            .and_then(|e| e.downcast_ref::<SocketSetupError>())
+            .is_some_and(|e| {
+                matches!(
+                    e.stage,
+                    "socket creation" | "local bind" | "readiness registration"
+                )
+            })
 }
 
 fn le16(bytes: &[u8]) -> io::Result<u16> {
@@ -150,13 +181,33 @@ impl DirectAtt {
         characteristic: Uuid,
         requested_mtu: u16,
     ) -> io::Result<Arc<Self>> {
+        Self::connect_discovered(
+            address,
+            AddressType::Public,
+            service,
+            characteristic,
+            requested_mtu,
+        )
+        .await
+    }
+
+    pub async fn connect_discovered(
+        address: [u8; 6],
+        address_type: AddressType,
+        service: Uuid,
+        characteristic: Uuid,
+        requested_mtu: u16,
+    ) -> io::Result<Arc<Self>> {
         if !matches!(requested_mtu, TEXT_ATT_MTU | FILE_ATT_MTU) {
             return Err(invalid("unsupported direct LE ATT MTU request"));
         }
         let socket = Arc::new(
-            timeout(Duration::from_secs(20), connect_socket(address))
-                .await
-                .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "LE connect timed out"))??,
+            timeout(
+                Duration::from_secs(20),
+                connect_socket(address, address_type),
+            )
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "LE connect timed out"))??,
         );
         let (reply_tx, reply_rx) = mpsc::channel(8);
         let (notify_tx, notify_rx) = mpsc::channel(64);
@@ -401,7 +452,25 @@ impl Drop for DirectAtt {
     }
 }
 
-async fn connect_socket(address: [u8; 6]) -> io::Result<AsyncFd<OwnedFd>> {
+fn peer_socket_address(address: [u8; 6], address_type: AddressType) -> L2Addr {
+    let mut address = address;
+    address.reverse();
+    L2Addr {
+        family: libc::AF_BLUETOOTH as _,
+        psm: 0,
+        address,
+        cid: ATT_CID.to_le(),
+        address_type: match address_type {
+            AddressType::Public => LE_PUBLIC,
+            AddressType::Random => LE_RANDOM,
+        },
+    }
+}
+
+async fn connect_socket(
+    address: [u8; 6],
+    address_type: AddressType,
+) -> io::Result<AsyncFd<OwnedFd>> {
     // The local ATT-CID bind is essential: without it Linux rejects the
     // connect with EINVAL even when the iPhone is advertising.
     let raw = unsafe {
@@ -425,17 +494,7 @@ async fn connect_socket(address: [u8; 6]) -> io::Result<AsyncFd<OwnedFd>> {
         cid: ATT_CID.to_le(),
         address_type: LE_PUBLIC,
     };
-    let target = L2Addr {
-        family: libc::AF_BLUETOOTH as _,
-        psm: 0,
-        address: [0; 6],
-        cid: ATT_CID.to_le(),
-        address_type: LE_PUBLIC,
-    };
-    let mut target = target;
-    for (dest, source) in target.address.iter_mut().zip(address.iter().rev()) {
-        *dest = *source;
-    }
+    let target = peer_socket_address(address, address_type);
     if unsafe {
         libc::bind(
             fd.as_raw_fd(),
@@ -549,6 +608,47 @@ async fn read_packet(socket: &AsyncFd<OwnedFd>) -> io::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn discovered_address_types_preserve_kernel_att_socket_encoding() {
+        let public = peer_socket_address([1, 2, 3, 4, 5, 6], AddressType::Public);
+        let random = peer_socket_address([1, 2, 3, 4, 5, 6], AddressType::Random);
+        assert_eq!(public.address, [6, 5, 4, 3, 2, 1]);
+        assert_eq!(random.address, public.address);
+        assert_eq!(public.address_type, 0x01); // Linux BDADDR_LE_PUBLIC
+        assert_eq!(random.address_type, 0x02); // Linux BDADDR_LE_RANDOM
+        assert_eq!(u16::from_le(public.cid), 4);
+        assert_eq!(random.cid, public.cid);
+        assert_eq!(random.psm, 0);
+    }
+
+    #[test]
+    fn probe_rejections_do_not_hide_local_socket_configuration_errors() {
+        for errno in [
+            libc::EPERM,
+            libc::EACCES,
+            libc::ENETDOWN,
+            libc::ENODEV,
+            libc::EPROTONOSUPPORT,
+            libc::EOPNOTSUPP,
+        ] {
+            assert!(fatal_probe_error(&io::Error::from_raw_os_error(errno)));
+        }
+        assert!(fatal_probe_error(&socket_setup_error(
+            "socket creation",
+            io::Error::from_raw_os_error(libc::ENOSYS)
+        )));
+        assert!(!fatal_probe_error(&socket_setup_error(
+            "connection completion",
+            io::Error::from_raw_os_error(libc::ENOSYS)
+        )));
+        assert!(!fatal_probe_error(&invalid("unrelated peer response")));
+        assert!(!fatal_probe_error(&io::Error::from(
+            io::ErrorKind::NotFound
+        )));
+        assert!(!fatal_probe_error(&io::Error::from(
+            io::ErrorKind::TimedOut
+        )));
+    }
     #[test]
     fn connection_failure_keeps_stage_kind_and_underlying_errno() {
         let error = socket_setup_error(

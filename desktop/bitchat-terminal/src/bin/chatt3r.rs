@@ -23,7 +23,7 @@ use btleplug::api::{
     ScanFilter, ValueNotification, WriteType,
 };
 use btleplug::platform::{Adapter, Manager, Peripheral};
-use discovery::{Evidence, FreshScan};
+use discovery::{Evidence, FreshScan, ProbeOrder};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use futures::{stream::BoxStream, StreamExt};
 use protocol::{Packet, Reassembler, ANNOUNCE, FRAGMENT, LEAVE, MAX_TEXT_BYTES, MESSAGE};
@@ -206,7 +206,8 @@ async fn discover(
     service: Uuid,
     scan_only: bool,
     output: &ui::Output,
-) -> Result<Option<Peripheral>> {
+    probe_order: &ProbeOrder<btleplug::platform::PeripheralId>,
+) -> Result<Option<DiscoveryCandidate>> {
     let mut first_match = None;
     let mut diagnostic_at = Instant::now();
     loop {
@@ -237,19 +238,48 @@ async fn discover(
             if let Some(properties) = peripheral.properties().await? {
                 let has_service = properties.services.contains(&service);
                 cached_uuid_matches += usize::from(has_service);
-                if let Some(rank) = scan.rank(&peripheral.id(), has_service) {
+                let advertised_rank = scan.rank(&peripheral.id(), has_service);
+                let probe_address = if advertised_rank.is_none()
+                    && cfg!(target_os = "linux")
+                    && service == SERVICE
+                    && !scan_only
+                {
+                    properties
+                        .address_type
+                        .map(|kind| (properties.address, kind))
+                } else {
+                    None
+                };
+                let rank = advertised_rank
+                    .or_else(|| probe_address.and_then(|_| scan.probe_rank(&peripheral.id())));
+                if let Some(rank) = rank {
                     if scan.report_once(peripheral.id()) && (scan_only || output.debug) {
                         output.line(&format!(
-                            "[scan] live {} candidate; name={}",
-                            if service == DESKTOP_SERVICE {
-                                "chatt3r desktop"
+                            "[scan] {} candidate; name={}",
+                            if probe_address.is_some() {
+                                "fresh unverified LE"
+                            } else if service == DESKTOP_SERVICE {
+                                "live chatt3r desktop"
                             } else {
-                                "BitChat"
+                                "live BitChat"
                             },
                             display(properties.local_name.as_deref().unwrap_or("(unnamed)"))
                         ))?;
                     }
-                    candidates.push((rank, peripheral));
+                    let priority = if probe_address.is_some() {
+                        probe_order.priority(&peripheral.id())
+                    } else {
+                        0
+                    };
+                    candidates.push((
+                        u8::from(probe_address.is_some()),
+                        priority,
+                        rank,
+                        DiscoveryCandidate {
+                            peripheral,
+                            probe_address,
+                        },
+                    ));
                 }
             }
         }
@@ -259,7 +289,7 @@ async fn discover(
             diagnostic_at = Instant::now();
         }
         if !scan_only {
-            candidates.sort_by_key(|(rank, _)| *rank);
+            candidates.sort_by_key(|(probe, priority, rank, _)| (*probe, *priority, *rank));
             if candidates.is_empty() {
                 first_match = None;
             } else {
@@ -267,7 +297,10 @@ async fn discover(
                 // cannot win just because its event arrived first.
                 let since = first_match.get_or_insert_with(Instant::now);
                 if since.elapsed() >= Duration::from_millis(750) {
-                    return Ok(candidates.into_iter().next().map(|(_, p)| p));
+                    return Ok(candidates
+                        .into_iter()
+                        .next()
+                        .map(|(_, _, _, candidate)| candidate));
                 }
             }
         }
@@ -590,6 +623,23 @@ fn transient_connect_error(error: &btleplug::Error) -> bool {
 
 type ReadyLink = (Characteristic, BoxStream<'static, ValueNotification>);
 
+struct DiscoveryCandidate {
+    peripheral: Peripheral,
+    probe_address: Option<(BDAddr, btleplug::api::AddressType)>,
+}
+
+enum ClientLink {
+    BlueZ(ReadyLink),
+    #[cfg(target_os = "linux")]
+    Direct(std::sync::Arc<linux_att::DirectAtt>),
+}
+
+struct ScanSession {
+    selected: Option<Peripheral>,
+    scanning: bool,
+    probe_order: ProbeOrder<btleplug::platform::PeripheralId>,
+}
+
 #[derive(Debug)]
 struct StartupError {
     stage: &'static str,
@@ -801,10 +851,9 @@ async fn scan_ready_peer(
     adapter: &Adapter,
     options: &Options,
     output: &ui::Output,
-    selected: &mut Option<Peripheral>,
-    scanning: &mut bool,
+    state: &mut ScanSession,
     persistent: bool,
-) -> Result<Option<ReadyLink>> {
+) -> Result<Option<ClientLink>> {
     let service = scanned_service(options);
     // New subscription and evidence each window: old cache/rejections must
     // neither manufacture a live peer nor permanently exclude a returning one.
@@ -814,7 +863,7 @@ async fn scan_ready_peer(
     let filter = ScanFilter {
         services: vec![service],
     };
-    *scanning = true;
+    state.scanning = true;
     adapter.start_scan(filter.clone()).await?;
     let deadline = Instant::now() + Duration::from_secs(options.scan_seconds);
     if options.debug || options.scan_only {
@@ -852,19 +901,66 @@ async fn scan_ready_peer(
                 service,
                 options.scan_only,
                 output,
+                &state.probe_order,
             ),
         )
         .await;
-        let peripheral = match found {
-            Ok(Ok(Some(peripheral))) => peripheral,
+        let candidate = match found {
+            Ok(Ok(Some(candidate))) => candidate,
             Ok(Ok(None)) | Err(_) => break,
             Ok(Err(error)) => return Err(error),
         };
-        *selected = Some(peripheral.clone());
+        let peripheral = candidate.peripheral;
+        if candidate.probe_address.is_none() {
+            state.selected = Some(peripheral.clone());
+        }
+        state.probe_order.record(peripheral.id());
         adapter.stop_scan().await?;
-        *scanning = false;
+        state.scanning = false;
+        #[cfg(target_os = "linux")]
+        if let Some((address, address_type)) = candidate.probe_address {
+            output.diagnostic("[probe] verifying BitChat over direct LE; 5s deadline; no chat frames before GATT verification")?;
+            let address_type = match address_type {
+                btleplug::api::AddressType::Public => linux_att::AddressType::Public,
+                btleplug::api::AddressType::Random => linux_att::AddressType::Random,
+            };
+            let probe = timeout(
+                Duration::from_secs(5),
+                linux_att::DirectAtt::connect_discovered(
+                    address.into_inner(),
+                    address_type,
+                    service,
+                    CHARACTERISTIC,
+                    if options.receive_files.is_some() {
+                        linux_att::FILE_ATT_MTU
+                    } else {
+                        linux_att::TEXT_ATT_MTU
+                    },
+                ),
+            )
+            .await;
+            match probe {
+                Ok(Ok(link)) => {
+                    output.diagnostic("[probe] BitChat GATT verified; using direct LE without BlueZ profile auto-connect")?;
+                    return Ok(Some(ClientLink::Direct(link)));
+                }
+                Ok(Err(error)) if linux_att::fatal_probe_error(&error) => return Err(error.into()),
+                Ok(Err(error)) => {
+                    output.diagnostic(&format!("[probe] candidate rejected: {error}"))?
+                }
+                Err(_) => output
+                    .diagnostic("[probe] candidate timed out; trying another fresh candidate")?,
+            }
+            scan.reject(peripheral.id());
+            if Instant::now() >= deadline {
+                break;
+            }
+            state.scanning = true;
+            adapter.start_scan(filter.clone()).await?;
+            continue;
+        }
         match connect_with_retry(&peripheral, service, output).await {
-            Ok(link) => return Ok(Some(link)),
+            Ok(link) => return Ok(Some(ClientLink::BlueZ(link))),
             Err(error)
                 if error
                     .downcast_ref::<StartupError>()
@@ -875,11 +971,11 @@ async fn scan_ready_peer(
                 output.line("[scan] candidate not ready; looking for another live peer")?;
                 last_error = Some(error);
                 let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
-                *selected = None;
+                state.selected = None;
                 if Instant::now() >= deadline {
                     break;
                 }
-                *scanning = true;
+                state.scanning = true;
                 adapter.start_scan(filter.clone()).await?;
             }
             Err(error) => return Err(error),
@@ -1236,6 +1332,25 @@ async fn connect_direct(
     }
 }
 
+#[cfg(target_os = "linux")]
+async fn direct_notifications(
+    link: &linux_att::DirectAtt,
+) -> Result<BoxStream<'static, ValueNotification>> {
+    let receiver = link.take_notifications().await?;
+    Ok(futures::stream::unfold(receiver, |mut rx| async move {
+        rx.recv().await.map(|value| {
+            (
+                ValueNotification {
+                    uuid: CHARACTERISTIC,
+                    value,
+                },
+                rx,
+            )
+        })
+    })
+    .boxed())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let Some(options) = options()? else {
@@ -1317,20 +1432,7 @@ async fn main() -> Result<()> {
             if options.receive_files.is_some() && !file_frame_fits(link.max_value()) {
                 return Err(format!("negotiated ATT value limit {} is below the observed 504-byte iPhone file fragment; cannot safely receive this image on this link. text remains available without --receive-files. no pairing changes needed", link.max_value()).into());
             }
-            let receiver = link.take_notifications().await?;
-            let notifications: BoxStream<'static, ValueNotification> =
-                futures::stream::unfold(receiver, |mut rx| async move {
-                    rx.recv().await.map(|value| {
-                        (
-                            ValueNotification {
-                                uuid: CHARACTERISTIC,
-                                value,
-                            },
-                            rx,
-                        )
-                    })
-                })
-                .boxed();
+            let notifications = direct_notifications(&link).await?;
             let result = chat_session(
                 LinkWriter::Direct(link),
                 notifications,
@@ -1385,17 +1487,13 @@ async fn main() -> Result<()> {
         .as_ref()
         .map(|room| room.output.clone())
         .unwrap_or_else(|| ui::Output::plain(options.debug));
+    let mut scan_state = ScanSession {
+        selected: None,
+        scanning: false,
+        probe_order: ProbeOrder::new(),
+    };
     loop {
-        let mut selected = None;
-        let mut scanning = false;
-        let setup = scan_ready_peer(
-            &adapter,
-            &options,
-            &output,
-            &mut selected,
-            &mut scanning,
-            persistent,
-        );
+        let setup = scan_ready_peer(&adapter, &options, &output, &mut scan_state, persistent);
         let setup = if let Some(room) = &mut room {
             room.operation(setup, &chat_receiver, false).await
         } else {
@@ -1405,38 +1503,58 @@ async fn main() -> Result<()> {
             }
         };
         // Cancelling a D-Bus future doesn't stop BlueZ's scan or pending link.
-        let stopped = if scanning {
+        let stopped = if scan_state.scanning {
             timeout(Duration::from_secs(5), adapter.stop_scan())
                 .await
                 .unwrap_or_else(|_| Err(btleplug::Error::TimedOut(Duration::from_secs(5))))
         } else {
             Ok(())
         };
+        scan_state.scanning = false;
         let result = match setup {
-            Ok(Some(Ok(Some((characteristic, notifications))))) => match selected.as_ref() {
-                Some(peripheral) => {
-                    if let Some(room) = &mut room {
-                        chat_session(
-                            LinkWriter::BlueZ(peripheral, &characteristic),
-                            notifications,
-                            &options,
-                            &mut chat_receiver,
-                            room,
-                            true,
-                        )
-                        .await
-                    } else {
-                        chat(
-                            LinkWriter::BlueZ(peripheral, &characteristic),
-                            notifications,
-                            &options,
-                            &mut chat_receiver,
-                        )
-                        .await
+            Ok(Some(Ok(Some(ClientLink::BlueZ((characteristic, notifications)))))) => {
+                match scan_state.selected.as_ref() {
+                    Some(peripheral) => {
+                        if let Some(room) = &mut room {
+                            chat_session(
+                                LinkWriter::BlueZ(peripheral, &characteristic),
+                                notifications,
+                                &options,
+                                &mut chat_receiver,
+                                room,
+                                true,
+                            )
+                            .await
+                        } else {
+                            chat(
+                                LinkWriter::BlueZ(peripheral, &characteristic),
+                                notifications,
+                                &options,
+                                &mut chat_receiver,
+                            )
+                            .await
+                        }
                     }
+                    None => Err("scan setup returned a link without a selected peer".into()),
                 }
-                None => Err("scan setup returned a link without a selected peer".into()),
-            },
+            }
+            #[cfg(target_os = "linux")]
+            Ok(Some(Ok(Some(ClientLink::Direct(link))))) => {
+                if options.receive_files.is_some() && !file_frame_fits(link.max_value()) {
+                    Err("negotiated ATT value limit is below the observed 504-byte file fragment; use text mode without --receive-files".into())
+                } else {
+                    let notifications = direct_notifications(&link).await?;
+                    chat_session(
+                        LinkWriter::Direct(link),
+                        notifications,
+                        &options,
+                        &mut chat_receiver,
+                        room.as_mut().unwrap(),
+                        true,
+                    )
+                    .await
+                }
+            }
             Ok(Some(Ok(None))) => {
                 stopped?;
                 if options.debug || options.scan_only {
@@ -1465,7 +1583,7 @@ async fn main() -> Result<()> {
                 room.announce_requested = false;
             }
         }
-        if let Some(peripheral) = selected {
+        if let Some(peripheral) = scan_state.selected.take() {
             let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
         }
         if !resume {

@@ -7,12 +7,17 @@ current candidate (2026-10-13): **persistent ordinary Linux client discovery**.
 after the completed known-phone gate, Linux chat renews empty scan windows and returns to
 discovery after recoverable setup/link failures, using the existing persistent
 room. `--scan-only` stays finite; Windows lifecycle and BLE roles are unchanged.
-the first ordinary-phone radio check kept renewing windows and `/peers` worked,
-but found no iPhone candidate. the current follow-up retains a matching service
-UUID from fresh advertisement events and adds metadata-only `[scan-state]`
-counts. it preserves cache-only rejection, bounded evidence and GATT/signature
-checks. the failure's exact radio/BlueZ cause remains unconfirmed.
-66 unit tests, twelve PTY cases, launcher smoke and strict Linux/Windows type
+the user's comparison confirmed the saved-phone direct route still works; the
+bypass repeatedly saw one fresh device but zero service events/property UUID
+matches and no eligible candidate. that device's identity remains unconfirmed.
+the current fix verifies BitChat GATT over direct LE on bounded fresh UUID-less
+Linux stock-service candidates, with a five-second probe deadline and fair
+512-entry ordering. it does not read the saved phone, use names, change bonds
+or alter roles. only a verified service/characteristic reaches chat; signed
+announcements still gate user text. visible-UUID, desktop and Windows paths
+retain their connection choices. public/random discovered address types are
+supported; the explicit known-phone wrapper retains its public-address path.
+70 unit tests, twelve PTY cases, launcher smoke and strict Linux/Windows type
 checks pass. radio behavior is unverified; stop at
 [the ordinary-discovery device check](persistent-discovery.md#next-physical-gate).
 the earlier stop/pending instructions below describe the completed phone slice.

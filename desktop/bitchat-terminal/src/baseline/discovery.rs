@@ -1,7 +1,32 @@
 //! BlueZ lists cached peripherals and btleplug synthesizes discovery events for
 //! them. A cached UUID alone is not proof of a nearby, currently active app.
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
+
+pub struct ProbeOrder<I> {
+    recent: VecDeque<I>,
+}
+
+impl<I: Eq> ProbeOrder<I> {
+    pub fn new() -> Self {
+        Self {
+            recent: VecDeque::new(),
+        }
+    }
+    pub fn priority(&self, id: &I) -> usize {
+        self.recent
+            .iter()
+            .position(|seen| seen == id)
+            .map_or(0, |index| index + 1)
+    }
+    pub fn record(&mut self, id: I) {
+        self.recent.retain(|seen| seen != &id);
+        self.recent.push_back(id);
+        if self.recent.len() > 512 {
+            self.recent.pop_front();
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum Evidence {
@@ -62,6 +87,14 @@ impl<I: Eq + Hash + Clone> FreshScan<I> {
         )
     }
 
+    /// A probe is only a candidate; live GATT verification must precede chat.
+    pub fn probe_rank(&self, id: &I) -> Option<u8> {
+        if self.rejected.contains(id) {
+            return None;
+        }
+        self.live.get(id).map(|(rank, _)| rank + 2)
+    }
+
     pub fn reject(&mut self, id: I) {
         self.rejected.insert(id);
     }
@@ -73,6 +106,42 @@ impl<I: Eq + Hash + Clone> FreshScan<I> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uuidless_probe_requires_fresh_evidence_and_respects_rejections() {
+        let mut scan = FreshScan::new([1]);
+        scan.observe(1, Evidence::DeviceDiscovered);
+        assert_eq!(scan.probe_rank(&1), None);
+        scan.observe(1, Evidence::RadioUpdate);
+        assert_eq!(scan.rank(&1, false), None);
+        assert_eq!(scan.probe_rank(&1), Some(3));
+        scan.observe(2, Evidence::MatchingService);
+        assert!(scan.rank(&2, false).unwrap() < scan.probe_rank(&1).unwrap());
+        scan.reject(1);
+        assert_eq!(scan.probe_rank(&1), None);
+        for id in 3..1024 {
+            scan.observe(id, Evidence::RadioUpdate);
+        }
+        assert_eq!(scan.probe_rank(&1023), None);
+        assert_eq!(FreshScan::new([1]).probe_rank(&1), None);
+    }
+
+    #[test]
+    fn failed_probes_rotate_across_windows_without_unbounded_history() {
+        let mut order = ProbeOrder::new();
+        order.record(1);
+        assert!(order.priority(&2) < order.priority(&1));
+        order.record(2);
+        assert!(order.priority(&1) < order.priority(&2));
+        order.record(1);
+        assert!(order.priority(&2) < order.priority(&1));
+        assert_eq!(order.recent.len(), 2);
+        for id in 3..1024 {
+            order.record(id);
+        }
+        assert_eq!(order.recent.len(), 512);
+        assert_eq!(order.priority(&1), 0);
+    }
 
     #[test]
     fn matching_advertisement_survives_missing_cached_service_properties() {
