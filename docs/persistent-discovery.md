@@ -8,6 +8,20 @@ failure. this covers stock BitChat discovery and explicit `--desktop-peer`;
 one link is managed at a time. **software-tested, not yet radio-confirmed**.
 the separately proven known-phone direct-LE path is preserved.
 
+first physical check (2026-10-13): the user's stock-service scan repeated
+ten-second windows and `/peers` returned zero, but no phone candidate appeared.
+room persistence is observed; automatic phone discovery and text on this path
+are **not confirmed**. this resembles the previously recorded BlueZ hidden-UUID
+issue, but the excerpt cannot establish whether any advertisement was forwarded.
+
+the follow-up correction retains a matching UUID from a fresh
+`ServicesAdvertisement` event when cached peripheral properties omit it.
+that evidence is bounded to the current window and the existing 512-address
+limit; rejected candidates and cached-only sightings stay ineligible. GATT
+properties and a fresh signed peer announcement are still required afterward.
+this correction is software-tested, not hardware-confirmed; it cannot restore
+advertisement data that BlueZ never forwards.
+
 `--scan-seconds` is the length of each discovery window in Linux chat. a new
 window starts when an empty one ends. `--scan-only` still performs one finite
 scan and never connects. native Windows client/host lifecycle, service UUID
@@ -24,7 +38,9 @@ setup diagnostics use `ui::Output` so a draft is redrawn rather than overwritten
 
 each `scan_ready_peer` window obtains a new adapter event stream and
 `FreshScan` evidence set. cached UUIDs and synthetic discoveries remain
-insufficient; a service match and fresh radio evidence are required. a failed
+insufficient; a service match and fresh radio evidence are required. a fresh
+matching service event also supplies the service match; its UUID is no longer
+discarded in favor of possibly incomplete cached properties. a failed
 candidate is rejected for that window. a later window can consider it again
 only after fresh evidence. the live evidence bound remains 512 addresses.
 
@@ -57,7 +73,7 @@ are unchanged. a successful BLE write is still not a delivery receipt.
 
 ## software evidence and limits
 
-64 Linux unit tests, strict Linux checks, launcher smoke and twelve PTY cases
+66 Linux unit tests, strict Linux checks, launcher smoke and twelve PTY cases
 pass. regressions cover recovery eligibility, permanent-error guards, ended
 scan streams, fresh evidence for returning rejected candidates, repeated empty
 waiting windows with an intact draft, and all three quit methods. the terminal
@@ -87,6 +103,15 @@ CHATT3R_LE_PEER= ./scripts/chatt3r --name laptop --debug --scan-seconds 10
    scanning or setup; the shell should retain normal editing afterward.
 5. separately, `CHATT3R_LE_PEER= ./scripts/chatt3r --scan-only --scan-seconds 10`
    must exit after one window without connecting.
+
+if no candidate appears, share one `[scan-state]` line and whether the usual
+`./scripts/chatt3r --name laptop --debug` command still exchanges text with
+the configured phone. `observed` counts devices with fresh qualifying events;
+`matching_advertisements` counts devices with a matching service event;
+`cached_uuid_matches` counts current peripheral property matches, including
+cache; `eligible` counts candidates after the freshness/rejection checks.
+zero counts alone cannot distinguish a silent phone from BlueZ filtering it.
+the summary contains no device addresses, IDs or packet content.
 
 this laptop previously required direct LE because BlueZ selected the phone's
 classic audio profile. ordinary discovery may still find that phone but fail

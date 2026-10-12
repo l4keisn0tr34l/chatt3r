@@ -208,14 +208,22 @@ async fn discover(
     output: &ui::Output,
 ) -> Result<Option<Peripheral>> {
     let mut first_match = None;
+    let mut diagnostic_at = Instant::now();
     loop {
         // The adapter can enumerate cached profiles without hearing the phone.
         // Only a new device or a radio update *during this scan* makes it eligible.
         if let Some(event) = scan_event(events).await? {
             match event {
                 CentralEvent::DeviceDiscovered(id) => scan.observe(id, Evidence::DeviceDiscovered),
+                CentralEvent::ServicesAdvertisement { id, services } => scan.observe(
+                    id,
+                    if services.contains(&service) {
+                        Evidence::MatchingService
+                    } else {
+                        Evidence::RadioUpdate
+                    },
+                ),
                 CentralEvent::DeviceUpdated(id)
-                | CentralEvent::ServicesAdvertisement { id, .. }
                 | CentralEvent::ServiceDataAdvertisement { id, .. }
                 | CentralEvent::ManufacturerDataAdvertisement { id, .. } => {
                     scan.observe(id, Evidence::RadioUpdate);
@@ -224,11 +232,12 @@ async fn discover(
             }
         }
         let mut candidates = Vec::new();
+        let mut cached_uuid_matches = 0;
         for peripheral in adapter.peripherals().await? {
             if let Some(properties) = peripheral.properties().await? {
-                if let Some(rank) =
-                    scan.rank(&peripheral.id(), properties.services.contains(&service))
-                {
+                let has_service = properties.services.contains(&service);
+                cached_uuid_matches += usize::from(has_service);
+                if let Some(rank) = scan.rank(&peripheral.id(), has_service) {
                     if scan.report_once(peripheral.id()) && (scan_only || output.debug) {
                         output.line(&format!(
                             "[scan] live {} candidate; name={}",
@@ -243,6 +252,11 @@ async fn discover(
                     candidates.push((rank, peripheral));
                 }
             }
+        }
+        if output.debug && diagnostic_at.elapsed() >= Duration::from_secs(5) {
+            let (observed, matching_advertisements) = scan.counts();
+            output.diagnostic(&format!("[scan-state] observed={observed} matching_advertisements={matching_advertisements} cached_uuid_matches={cached_uuid_matches} eligible={}", candidates.len()))?;
+            diagnostic_at = Instant::now();
         }
         if !scan_only {
             candidates.sort_by_key(|(rank, _)| *rank);

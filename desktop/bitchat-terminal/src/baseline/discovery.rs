@@ -7,11 +7,12 @@ use std::hash::Hash;
 pub enum Evidence {
     DeviceDiscovered,
     RadioUpdate,
+    MatchingService,
 }
 
 pub struct FreshScan<I> {
     initial: HashSet<I>,
-    live: HashMap<I, u8>,
+    live: HashMap<I, (u8, bool)>,
     rejected: HashSet<I>,
     reported: HashSet<I>,
 }
@@ -36,14 +37,29 @@ impl<I: Eq + Hash + Clone> FreshScan<I> {
             return;
         }
         // Prefer newly seen addresses over old cached/system profiles.
-        self.live.insert(id, u8::from(existed));
+        let matching_service = matches!(evidence, Evidence::MatchingService);
+        self.live
+            .entry(id)
+            .and_modify(|(_, advertised)| *advertised |= matching_service)
+            .or_insert((u8::from(existed), matching_service));
     }
 
     pub fn rank(&self, id: &I, has_service: bool) -> Option<u8> {
-        if !has_service || self.rejected.contains(id) {
+        if self.rejected.contains(id) {
             return None;
         }
-        self.live.get(id).copied()
+        let (rank, advertised) = *self.live.get(id)?;
+        (has_service || advertised).then_some(rank)
+    }
+
+    pub fn counts(&self) -> (usize, usize) {
+        (
+            self.live.len(),
+            self.live
+                .values()
+                .filter(|(_, advertised)| *advertised)
+                .count(),
+        )
     }
 
     pub fn reject(&mut self, id: I) {
@@ -57,6 +73,34 @@ impl<I: Eq + Hash + Clone> FreshScan<I> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matching_advertisement_survives_missing_cached_service_properties() {
+        let mut scan = FreshScan::new([1]);
+        scan.observe(1, Evidence::DeviceDiscovered);
+        assert_eq!(scan.rank(&1, false), None); // cached synthetic sighting
+        scan.observe(1, Evidence::RadioUpdate);
+        assert_eq!(scan.rank(&1, false), None); // fresh, but wrong/absent service
+        scan.observe(1, Evidence::MatchingService);
+        assert_eq!(scan.rank(&1, false), Some(1));
+        scan.observe(1, Evidence::RadioUpdate);
+        assert_eq!(scan.rank(&1, false), Some(1)); // retain within this window
+        scan.reject(1);
+        assert_eq!(scan.rank(&1, false), None);
+    }
+
+    #[test]
+    fn advertisement_service_evidence_is_window_scoped_and_bounded() {
+        let mut scan = FreshScan::new([]);
+        for id in 0..1024 {
+            scan.observe(id, Evidence::MatchingService);
+        }
+        assert_eq!(scan.counts(), (512, 512));
+        assert_eq!(scan.rank(&1023, true), None);
+        let mut next = FreshScan::new([1]);
+        next.observe(1, Evidence::RadioUpdate);
+        assert_eq!(next.rank(&1, false), None);
+    }
 
     #[test]
     fn cached_uuid_and_synthetic_discovery_are_not_live_evidence() {
