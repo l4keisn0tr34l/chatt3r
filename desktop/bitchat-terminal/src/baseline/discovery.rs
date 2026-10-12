@@ -89,6 +89,20 @@ mod tests {
     }
 
     #[test]
+    fn returning_candidate_needs_fresh_radio_evidence_in_a_new_window() {
+        let mut first = FreshScan::new([]);
+        first.observe(1, Evidence::DeviceDiscovered);
+        first.reject(1);
+        assert_eq!(first.rank(&1, true), None);
+        let mut next = FreshScan::new([1]);
+        next.observe(1, Evidence::DeviceDiscovered);
+        assert_eq!(next.rank(&1, true), None); // cached synthetic event
+        next.observe(1, Evidence::RadioUpdate);
+        assert_eq!(next.rank(&1, true), Some(1));
+        assert_eq!(next.rank(&1, false), None); // still requires service match
+    }
+
+    #[test]
     fn observed_addresses_are_bounded() {
         let mut scan = FreshScan::new([]);
         for id in 0..1024 {

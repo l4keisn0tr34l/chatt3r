@@ -22,7 +22,7 @@ binary = next(r["executable"] for r in records
               if r.get("reason") == "compiler-artifact" and r.get("executable"))
 
 
-def run_case(test, *, no_color=False, exit_key=None, module="ui::tests", recovery=False, room=False):
+def run_case(test, *, no_color=False, exit_key=None, module="ui::tests", recovery=False, room=False, scan=False):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     before = termios.tcgetattr(slave)
@@ -44,7 +44,7 @@ def run_case(test, *, no_color=False, exit_key=None, module="ui::tests", recover
         (b"message was not sent or queued", b"/quit\r"),
         (b"iphone is nearby", b"persistent dra"),
         (b"test: link lost; same room waiting", b"ft\r"),
-        (b"Waiting for a phone link; message was not sent or queued", b"/peers\r"),
+        (b"Waiting for a connection; message was not sent or queued", b"/peers\r"),
         (b"0 nearby peers", b"/announce\r"),
         (b"nothing announced", b"/quit\r"),
         (b"iphone is nearby", b"/peers\r"),
@@ -55,6 +55,16 @@ def run_case(test, *, no_color=False, exit_key=None, module="ui::tests", recover
         (b"Will announce after", b"busy text\r"),
         (b"BLE write in progress; message was not sent or queued", exit_key),
     ]
+    if scan:
+        room = True
+        steps = [
+            (b"test: scan window 1", b"late"),
+            (b"test: scan window 2", b" draft"),
+            (b"test: waiting for a late peer", b"\r"),
+            (b"message was not sent or queued", b"/peers\r"),
+            (b"0 nearby peers", b"/announce\r"),
+            (b"nothing announced", exit_key),
+        ]
     offset = 0
     deadline = time.monotonic() + 10
     try:
@@ -91,8 +101,8 @@ def run_case(test, *, no_color=False, exit_key=None, module="ui::tests", recover
         assert termios.tcgetattr(slave) == before, "terminal mode not restored"
         if room:
             assert stage == len(steps), data
-            assert b"persistent draft" in data, data
-            assert b"test: persistent room complete" in data, data
+            assert (b"late draft" if scan else b"persistent draft") in data, data
+            assert (b"test: empty scan room complete" if scan else b"test: persistent room complete") in data, data
             return
         if recovery:
             assert b"stream closed; starting fresh session" in data, data
@@ -122,4 +132,6 @@ run_case("stream_closure_restores_terminal_then_fresh_session_exits",
 for key in (b"/quit\r", b"\x03", b"\x04"):
     run_case("persistent_room_wait_loss_return_and_write_cancellation",
              module="tests", room=True, no_color=True, exit_key=key)
-print("9 PTY cases passed: draft redraw, NO_COLOR, exits, persistent room commands, loss/return, no replay and write cancellation; terminal mode restored.")
+    run_case("empty_scan_windows_keep_one_room_and_cancel_cleanly",
+             module="tests", scan=True, no_color=True, exit_key=key)
+print("12 PTY cases passed: draft redraw, NO_COLOR, exits, persistent room commands, empty scan windows, loss/return, no replay and write cancellation; terminal mode restored.")

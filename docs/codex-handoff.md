@@ -3,6 +3,18 @@
 for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
 
+current candidate (2026-10-13): **persistent ordinary Linux client discovery**.
+after the completed known-phone gate, Linux chat renews empty scan windows and returns to
+discovery after recoverable setup/link failures, using the existing persistent
+room. `--scan-only` stays finite; Windows lifecycle and BLE roles are unchanged.
+64 unit tests, twelve PTY cases, launcher smoke and strict Linux/Windows type
+checks pass. radio behavior is unverified; stop at
+[the ordinary-discovery device check](persistent-discovery.md#next-physical-gate).
+the earlier stop/pending instructions below describe the completed phone slice.
+the local graph is in ignored `graphify-out/`; use it for navigation, then verify
+source because its integrity report includes unresolved raw references and
+collapsed edges. personal notes and received media are excluded.
+
 latest update (2026-10-09): **known-phone room and retry checkpoint complete**.
 after the `b4f3581` timing correction, the user confirmed all three requested
 physical checks: repeated retries report five seconds, opening BitChat permits

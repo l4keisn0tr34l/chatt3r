@@ -17,6 +17,7 @@ JPEG saves have been verified locally, including a repeat and two larger images.
 | --- | --- |
 | linux ↔ stock iphone bitchat text | user-confirmed on real devices |
 | quiet chat, colored nicknames, editable input | implemented; terminal-tested |
+| persistent ordinary Linux discovery | renews empty scan windows and rediscovers after recoverable link failure with the same room; software-tested, radio gate pending. `--scan-only` stays finite; [checkpoint](docs/persistent-discovery.md) |
 | startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait. one missing-service retry followed by connection observed; established-link reconnect pending |
 | known-phone connection recovery | `--direct-le` with `--wait-for-peer` returns to waiting after a failed write or lost link. first app-close test exited on setup OS error 38; post-success retry correction is software-tested, physical close/reopen retest pending. no user-message replay |
 | persistent known-phone room | one terminal through setup, waiting and link changes; `/peers`, `/announce`, `/quit` stay usable. draft/history persist; text while waiting or during a write is explicitly rejected. PTY-tested with simulated BLE; phone validation pending |
@@ -194,7 +195,7 @@ chatt3r --debug --scan-seconds 90
 | bitchat characteristic unavailable | a live address may carry a cached uuid; the client skips it and looks for another |
 | notification subscription times out | setup retries up to three times; keep the iphone unlocked |
 | connected, but waiting for an announcement | wait for a peer; try a short iphone nickname and inspect debug logs |
-| chat disconnects | known-phone direct LE with `--wait-for-peer` waits and reconnects; other paths still require restarting. check receipt before manually resending |
+| chat disconnects | known-phone direct LE with `--wait-for-peer` waits and reconnects; ordinary Linux client returns to discovery (new candidate, hardware pending). Windows lifecycle still requires restarting. check receipt before manually resending |
 | text is rejected | check the byte limit and the debug rejection reason |
 
 startup retries disconnect only the selected peer, not the adapter, and don't

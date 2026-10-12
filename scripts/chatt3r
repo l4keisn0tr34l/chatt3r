@@ -17,6 +17,7 @@ usage() {
         'chatt3r --help                   this cheat sheet' \
         'chatt3r --name laptop            pick your nickname' \
         'chatt3r --scan-only --scan-seconds 30    scan without connecting' \
+        'on linux, chat keeps searching; --scan-seconds sets each discovery window.' \
         'chatt3r --desktop-peer --debug    scan for a windows/laptop host, not the phone' \
         'chatt3r --direct-le <phone-address>   linux LE-only recovery for a known phone' \
         'chatt3r --receive-files <existing-dir>   opt-in small public file receive on linux phone link' \

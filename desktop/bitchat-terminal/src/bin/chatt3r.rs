@@ -91,6 +91,7 @@ Usage: chatt3r --write-limit <bytes> [--name <nickname>] [--debug]\n\
        chatt3r --host --stock-host --write-limit <bytes> (proven phone-off service fallback)\n\
        chatt3r --direct-le <phone-address> [--wait-for-peer] [--debug] (linux LE-only link)\n\
 --write-limit: operator-provided characteristic value limit, NOT measured MTU (36..512).\n\
+--scan-seconds: scan window length; Linux chat keeps scanning, --scan-only ends after one window.\n\
 --receive-files <existing-dir>: opt-in small public file receive on Linux phone link; saves .bin only.\n\
 Public text up to 1024 UTF-8 bytes (phone numbered-ASCII confirmed both ways; Windows longer text pending). No confidentiality, DMs, file sending or relaying.\n\
 For phone mode keep stock BitChat open on iPhone in its public room; desktop mode needs Windows --host.\n\
@@ -204,13 +205,13 @@ async fn discover(
     scan: &mut FreshScan<btleplug::platform::PeripheralId>,
     service: Uuid,
     scan_only: bool,
-    debug: bool,
+    output: &ui::Output,
 ) -> Result<Option<Peripheral>> {
     let mut first_match = None;
     loop {
         // The adapter can enumerate cached profiles without hearing the phone.
         // Only a new device or a radio update *during this scan* makes it eligible.
-        if let Ok(Some(event)) = timeout(Duration::from_millis(500), events.next()).await {
+        if let Some(event) = scan_event(events).await? {
             match event {
                 CentralEvent::DeviceDiscovered(id) => scan.observe(id, Evidence::DeviceDiscovered),
                 CentralEvent::DeviceUpdated(id)
@@ -228,8 +229,8 @@ async fn discover(
                 if let Some(rank) =
                     scan.rank(&peripheral.id(), properties.services.contains(&service))
                 {
-                    if scan.report_once(peripheral.id()) && (scan_only || debug) {
-                        println!(
+                    if scan.report_once(peripheral.id()) && (scan_only || output.debug) {
+                        output.line(&format!(
                             "[scan] live {} candidate; name={}",
                             if service == DESKTOP_SERVICE {
                                 "chatt3r desktop"
@@ -237,7 +238,7 @@ async fn discover(
                                 "BitChat"
                             },
                             display(properties.local_name.as_deref().unwrap_or("(unnamed)"))
-                        );
+                        ))?;
                     }
                     candidates.push((rank, peripheral));
                 }
@@ -256,6 +257,14 @@ async fn discover(
                 }
             }
         }
+    }
+}
+
+async fn scan_event(events: &mut BoxStream<'_, CentralEvent>) -> Result<Option<CentralEvent>> {
+    match timeout(Duration::from_millis(500), events.next()).await {
+        Ok(Some(event)) => Ok(Some(event)),
+        Ok(None) => Err("BLE discovery event stream ended; check the adapter".into()),
+        Err(_) => Ok(None),
     }
 }
 
@@ -588,6 +597,15 @@ impl Error for StartupError {
 }
 
 impl StartupError {
+    fn fatal_output(cause: std::io::Error) -> Self {
+        Self {
+            stage: "terminal output",
+            cause: cause.into(),
+            retryable: false,
+            missing_service: false,
+        }
+    }
+
     fn service_not_ready(desktop_peer: bool) -> Self {
         Self {
             stage: "GATT discovery",
@@ -631,12 +649,12 @@ async fn startup_stage<T>(
 async fn prepare_link(
     peripheral: &Peripheral,
     service: Uuid,
-    debug: bool,
+    output: &ui::Output,
 ) -> std::result::Result<ReadyLink, StartupError> {
     startup_stage("connection", Duration::from_secs(20), peripheral.connect()).await?;
-    if debug {
-        println!("[ble] connection established; discovering GATT services");
-    }
+    output
+        .diagnostic("[ble] connection established; discovering GATT services")
+        .map_err(StartupError::fatal_output)?;
     startup_stage(
         "GATT discovery",
         Duration::from_secs(15),
@@ -644,11 +662,13 @@ async fn prepare_link(
     )
     .await?;
     let characteristics = peripheral.characteristics();
-    if debug {
-        println!(
-            "[ble] GATT discovery complete; {} characteristics",
-            characteristics.len()
-        );
+    if output.debug {
+        output
+            .diagnostic(&format!(
+                "[ble] GATT discovery complete; {} characteristics",
+                characteristics.len()
+            ))
+            .map_err(StartupError::fatal_output)?;
     }
     let characteristic = characteristics
         .iter()
@@ -671,11 +691,13 @@ async fn prepare_link(
         peripheral.notifications(),
     )
     .await?;
-    if debug {
-        println!(
-            "[ble] subscribing to BitChat notifications; properties={:?}",
-            characteristic.properties
-        );
+    if output.debug {
+        output
+            .diagnostic(&format!(
+                "[ble] subscribing to BitChat notifications; properties={:?}",
+                characteristic.properties
+            ))
+            .map_err(StartupError::fatal_output)?;
     }
     startup_stage(
         "notification subscription",
@@ -683,15 +705,17 @@ async fn prepare_link(
         peripheral.subscribe(&characteristic),
     )
     .await?;
-    if debug {
-        println!("[ble] connected and subscribed; characteristic={CHARACTERISTIC}");
-    }
+    output
+        .diagnostic(&format!(
+            "[ble] connected and subscribed; characteristic={CHARACTERISTIC}"
+        ))
+        .map_err(StartupError::fatal_output)?;
     Ok((characteristic, notifications))
 }
 
 /// Retry setup only. Once chat starts, never replay a possibly delivered message.
 async fn retry_startup<T, P, D>(
-    debug: bool,
+    output: &ui::Output,
     pause: Duration,
     mut prepare: impl FnMut() -> P,
     mut disconnect: impl FnMut() -> D,
@@ -701,23 +725,21 @@ where
     D: Future<Output = ()>,
 {
     for attempt in 1..=3 {
-        if debug {
-            println!("[ble] setting up link (attempt {attempt}/3)");
-        }
+        output.diagnostic(&format!("[ble] setting up link (attempt {attempt}/3)"))?;
         match prepare().await {
             Ok(link) => return Ok(link),
             Err(error) => {
-                eprintln!("[ble] startup attempt {attempt} failed: {error}");
+                output.line(&format!("[ble] startup attempt {attempt} failed: {error}"))?;
                 if error.missing_service || !error.retryable || attempt == 3 {
                     return Err(error.into());
                 }
                 // Dropping a timed-out D-Bus future doesn't cancel BlueZ. Reset
                 // only this peer's pending link, not the adapter or its pairing.
                 disconnect().await;
-                println!(
+                output.line(&format!(
                     "[ble] retrying this peer in {}s; keep BitChat open and the iPhone unlocked",
                     pause.as_secs()
-                );
+                ))?;
                 sleep(pause).await;
             }
         }
@@ -728,17 +750,131 @@ where
 async fn connect_with_retry(
     peripheral: &Peripheral,
     service: Uuid,
-    debug: bool,
+    output: &ui::Output,
 ) -> Result<ReadyLink> {
     retry_startup(
-        debug,
+        output,
         Duration::from_secs(2),
-        || prepare_link(peripheral, service, debug),
+        || prepare_link(peripheral, service, output),
         || async {
             let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
         },
     )
     .await
+}
+
+fn recoverable_scan_setup(error: &(dyn Error + 'static)) -> bool {
+    error.downcast_ref::<StartupError>().is_some_and(|error| {
+        error.retryable
+            || error.missing_service
+            || matches!(
+                error.cause.downcast_ref::<btleplug::Error>(),
+                Some(btleplug::Error::DeviceNotFound)
+            )
+            || (error.stage == "connection"
+                && error.cause.to_string().contains("br-connection-canceled"))
+    })
+}
+
+fn resume_client_scan(persistent: bool, result: &Result<()>) -> bool {
+    persistent
+        && result.as_ref().err().is_some_and(|error| {
+            error.is::<LinkFailure>() || recoverable_scan_setup(error.as_ref())
+        })
+}
+
+async fn scan_ready_peer(
+    adapter: &Adapter,
+    options: &Options,
+    output: &ui::Output,
+    selected: &mut Option<Peripheral>,
+    scanning: &mut bool,
+    persistent: bool,
+) -> Result<Option<ReadyLink>> {
+    let service = scanned_service(options);
+    // New subscription and evidence each window: old cache/rejections must
+    // neither manufacture a live peer nor permanently exclude a returning one.
+    let mut events = adapter.events().await?;
+    let initial = adapter.peripherals().await?.into_iter().map(|p| p.id());
+    let mut scan = FreshScan::new(initial);
+    let filter = ScanFilter {
+        services: vec![service],
+    };
+    *scanning = true;
+    adapter.start_scan(filter.clone()).await?;
+    let deadline = Instant::now() + Duration::from_secs(options.scan_seconds);
+    if options.debug || options.scan_only {
+        output.line(&format!(
+            "[scan] service={service}; window={}s; no pairing required",
+            options.scan_seconds
+        ))?;
+    } else {
+        output.line(&format!(
+            "Looking for nearby {} peers…{}",
+            if options.desktop_peer {
+                "chatt3r desktop"
+            } else {
+                "BitChat"
+            },
+            if persistent {
+                " /peers · /announce · /quit"
+            } else {
+                ""
+            }
+        ))?;
+    }
+    let mut last_error = None;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let found = timeout(
+            remaining,
+            discover(
+                adapter,
+                &mut events,
+                &mut scan,
+                service,
+                options.scan_only,
+                output,
+            ),
+        )
+        .await;
+        let peripheral = match found {
+            Ok(Ok(Some(peripheral))) => peripheral,
+            Ok(Ok(None)) | Err(_) => break,
+            Ok(Err(error)) => return Err(error),
+        };
+        *selected = Some(peripheral.clone());
+        adapter.stop_scan().await?;
+        *scanning = false;
+        match connect_with_retry(&peripheral, service, output).await {
+            Ok(link) => return Ok(Some(link)),
+            Err(error)
+                if error
+                    .downcast_ref::<StartupError>()
+                    .is_some_and(|e| e.missing_service)
+                    || (persistent && recoverable_scan_setup(error.as_ref())) =>
+            {
+                scan.reject(peripheral.id());
+                output.line("[scan] candidate not ready; looking for another live peer")?;
+                last_error = Some(error);
+                let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
+                *selected = None;
+                if Instant::now() >= deadline {
+                    break;
+                }
+                *scanning = true;
+                adapter.start_scan(filter.clone()).await?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    match last_error {
+        Some(error) => Err(error),
+        None => Ok(None),
+    }
 }
 
 // A peripheral has no reason to notify on a link until the central has sent
@@ -800,12 +936,12 @@ impl Room {
                             self.announce_requested = true;
                             self.output.line("Will announce after the current BLE write finishes.")?;
                         }
-                        "/announce" => self.output.line("Waiting for a phone link; nothing announced.")?,
+                        "/announce" => self.output.line("Waiting for a connection; nothing announced.")?,
                         "" => {},
                         _ if line.starts_with('/') => self.output.line("Unsupported command; use /peers, /announce, /quit")?,
                         _ => self.output.line(if link_available {
                             "BLE write in progress; message was not sent or queued."
-                        } else { "Waiting for a phone link; message was not sent or queued." })?,
+                        } else { "Waiting for a connection; message was not sent or queued." })?,
                     }
                 }
             }
@@ -1215,7 +1351,6 @@ async fn main() -> Result<()> {
     if options.debug {
         println!("[debug] BLE diagnostics enabled; --help prints usage");
     }
-    let service = scanned_service(&options);
     let manager = Manager::new().await?;
     let adapter = manager
         .adapters()
@@ -1226,112 +1361,207 @@ async fn main() -> Result<()> {
     if options.debug {
         println!("[ble] adapter={}", adapter.adapter_info().await?);
     }
-    // Subscribe before scanning. btleplug also emits synthetic discoveries for
-    // devices already in BlueZ's cache; FreshScan ignores those until a real
-    // post-start radio update arrives.
-    let mut events = adapter.events().await?;
-    let initial = adapter.peripherals().await?.into_iter().map(|p| p.id());
-    let mut scan = FreshScan::new(initial);
-    let filter = ScanFilter {
-        services: vec![service],
-    };
-    adapter.start_scan(filter.clone()).await?;
-    let deadline = Instant::now() + Duration::from_secs(options.scan_seconds);
-    if options.debug || options.scan_only {
-        println!(
-            "[scan] service={service}; duration={}s; no pairing required",
-            options.scan_seconds
-        );
+    let persistent = cfg!(target_os = "linux") && !options.scan_only;
+    let mut room = if persistent {
+        Some(Room::open(options.debug)?)
     } else {
-        println!(
-            "Looking for nearby {} peers…",
-            if options.desktop_peer {
-                "chatt3r desktop"
-            } else {
-                "BitChat"
-            }
-        );
-    }
-    let mut last_error: Option<Box<dyn Error>> = None;
-    let mut cancelled = false;
+        None
+    };
+    let output = room
+        .as_ref()
+        .map(|room| room.output.clone())
+        .unwrap_or_else(|| ui::Output::plain(options.debug));
     loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            break;
-        }
-        let discovered = tokio::select! {
-            _ = tokio::signal::ctrl_c() => { cancelled = true; Ok(None) },
-            result = timeout(remaining, discover(&adapter, &mut events, &mut scan, service, options.scan_only, options.debug)) => {
-                match result { Ok(result) => result, Err(_) => Ok(None) }
+        let mut selected = None;
+        let mut scanning = false;
+        let setup = scan_ready_peer(
+            &adapter,
+            &options,
+            &output,
+            &mut selected,
+            &mut scanning,
+            persistent,
+        );
+        let setup = if let Some(room) = &mut room {
+            room.operation(setup, &chat_receiver, false).await
+        } else {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => Ok(None),
+                result = setup => Ok(Some(result)),
             }
         };
-        let peripheral = match discovered {
-            Ok(Some(peripheral)) => peripheral,
-            Ok(None) => break,
-            Err(error) => {
-                let _ = adapter.stop_scan().await;
-                return Err(error);
-            }
+        // Cancelling a D-Bus future doesn't stop BlueZ's scan or pending link.
+        let stopped = if scanning {
+            timeout(Duration::from_secs(5), adapter.stop_scan())
+                .await
+                .unwrap_or_else(|_| Err(btleplug::Error::TimedOut(Duration::from_secs(5))))
+        } else {
+            Ok(())
         };
-        adapter.stop_scan().await?;
-        let connection = tokio::select! {
-            _ = tokio::signal::ctrl_c() => Err("connection cancelled".into()),
-            result = connect_with_retry(&peripheral, service, options.debug) => result,
-        };
-        if let Err(error) = &connection {
-            if error
-                .downcast_ref::<StartupError>()
-                .is_some_and(|e| e.missing_service)
-            {
-                scan.reject(peripheral.id());
-                eprintln!("[scan] this candidate has no active chat characteristic; looking for another live address");
-                last_error = connection.err();
-                let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
-                if Instant::now() < deadline {
-                    adapter.start_scan(filter.clone()).await?;
+        let result = match setup {
+            Ok(Some(Ok(Some((characteristic, notifications))))) => match selected.as_ref() {
+                Some(peripheral) => {
+                    if let Some(room) = &mut room {
+                        chat_session(
+                            LinkWriter::BlueZ(peripheral, &characteristic),
+                            notifications,
+                            &options,
+                            &mut chat_receiver,
+                            room,
+                            true,
+                        )
+                        .await
+                    } else {
+                        chat(
+                            LinkWriter::BlueZ(peripheral, &characteristic),
+                            notifications,
+                            &options,
+                            &mut chat_receiver,
+                        )
+                        .await
+                    }
+                }
+                None => Err("scan setup returned a link without a selected peer".into()),
+            },
+            Ok(Some(Ok(None))) => {
+                stopped?;
+                if options.debug || options.scan_only {
+                    output.line("[scan] window ended")?;
+                }
+                if persistent {
+                    output.line(
+                        "No live peer yet; continuing discovery. /peers · /announce · /quit",
+                    )?;
                     continue;
                 }
-                break;
+                if options.scan_only {
+                    return Ok(());
+                }
+                return Err(if options.desktop_peer {
+                    "no live chatt3r desktop host found; start Windows --host, then rerun"
+                } else { "no live BitChat peer found; keep iPhone unlocked with BitChat open in its Bluetooth public room, then rerun" }.into());
+            }
+            Ok(Some(Err(error))) | Err(error) => Err(error),
+            Ok(None) => Ok(()),
+        };
+        let resume = resume_client_scan(persistent, &result);
+        if resume {
+            chat_receiver.begin_session([0; 8]);
+            if let Some(room) = &mut room {
+                room.announce_requested = false;
             }
         }
-        let result = match connection {
-            Ok((characteristic, notifications)) => {
-                chat(
-                    LinkWriter::BlueZ(&peripheral, &characteristic),
-                    notifications,
-                    &options,
-                    &mut chat_receiver,
-                )
-                .await
-            }
-            Err(error) => Err(error),
-        };
-        let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
-        return result;
+        if let Some(peripheral) = selected {
+            let _ = timeout(Duration::from_secs(5), peripheral.disconnect()).await;
+        }
+        if !resume {
+            return result;
+        }
+        stopped?;
+        output.diagnostic(&format!(
+            "[ble] returning to discovery: {}",
+            result.unwrap_err()
+        ))?;
+        output.line("Link unavailable; discovering again in 5s. No message was replayed; check the other screen before resending. /peers · /announce · /quit")?;
+        if room
+            .as_mut()
+            .unwrap()
+            .operation(sleep(Duration::from_secs(5)), &chat_receiver, false)
+            .await?
+            .is_none()
+        {
+            return Ok(());
+        }
     }
-    let _ = adapter.stop_scan().await;
-    if options.debug || options.scan_only {
-        println!("[scan] duration ended");
-    }
-    if cancelled {
-        return Ok(());
-    }
-    if let Some(error) = last_error {
-        return Err(error);
-    }
-    if !options.scan_only {
-        return Err(if options.desktop_peer {
-            "no live chatt3r desktop host found; start Windows --host, then rerun"
-        } else {
-            "no live BitChat peer found; keep iPhone unlocked with BitChat open in its Bluetooth public room, then rerun"
-        }.into());
-    }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires an interactive PTY"]
+    async fn empty_scan_windows_keep_one_room_and_cancel_cleanly() {
+        let mut room = Room::open(false).unwrap();
+        let receiver = Receiver::new([0; 8]);
+        for index in 1..=2 {
+            room.output
+                .line(&format!("test: scan window {index}"))
+                .unwrap();
+            assert!(room
+                .operation(sleep(Duration::from_millis(600)), &receiver, false)
+                .await
+                .unwrap()
+                .is_some());
+        }
+        room.output.line("test: waiting for a late peer").unwrap();
+        assert!(room
+            .operation(std::future::pending::<()>(), &receiver, false)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(receiver.peers.is_empty());
+        room.output.line("test: empty scan room complete").unwrap();
+    }
+
+    #[tokio::test]
+    async fn ended_scan_stream_returns_error_instead_of_polling_forever() {
+        let mut events = futures::stream::empty().boxed();
+        let error = scan_event(&mut events).await.unwrap_err();
+        assert!(error.to_string().contains("discovery event stream ended"));
+        assert!(!resume_client_scan(true, &Err(error)));
+    }
+
+    #[tokio::test]
+    async fn scan_recovery_keeps_permanent_errors_and_manual_quit_fatal_or_final() {
+        for cause in [
+            btleplug::Error::DeviceNotFound,
+            btleplug::Error::NotConnected,
+            btleplug::Error::TimedOut(Duration::from_secs(20)),
+            btleplug::Error::Other("D-Bus error: br-connection-canceled".into()),
+        ] {
+            let error = startup_stage("connection", Duration::from_secs(1), async {
+                Err::<(), _>(cause)
+            })
+            .await
+            .unwrap_err();
+            let result = Err(error.into());
+            assert!(resume_client_scan(true, &result));
+            assert!(!resume_client_scan(false, &result));
+        }
+        assert!(resume_client_scan(
+            true,
+            &Err(StartupError::service_not_ready(false).into())
+        ));
+        assert!(resume_client_scan(
+            true,
+            &Err(link_failure("write failed; delivery unknown"))
+        ));
+        for cause in [
+            btleplug::Error::PermissionDenied,
+            btleplug::Error::Other("org.bluez.Error.AuthenticationFailed".into()),
+        ] {
+            let error = startup_stage("connection", Duration::from_secs(1), async {
+                Err::<(), _>(cause)
+            })
+            .await
+            .unwrap_err();
+            assert!(!resume_client_scan(true, &Err(error.into())));
+        }
+        assert!(!resume_client_scan(
+            true,
+            &Err(StartupError::fatal("GATT discovery", "unsupported properties").into())
+        ));
+        assert!(!resume_client_scan(
+            true,
+            &Err(StartupError::fatal_output(std::io::ErrorKind::BrokenPipe.into()).into())
+        ));
+        assert!(!resume_client_scan(
+            true,
+            &Err("invalid protocol configuration".into())
+        ));
+        assert!(!resume_client_scan(true, &Ok(()))); // /quit, Ctrl-C, EOF
+    }
 
     #[tokio::test]
     async fn failed_fragment_write_stops_packet_and_allows_only_opted_in_recovery() {
@@ -1789,7 +2019,7 @@ mod tests {
             let attempts = Cell::new(0);
             let resets = Cell::new(0);
             let result = retry_startup(
-                false,
+                &ui::Output::plain(false),
                 Duration::ZERO,
                 || {
                     attempts.set(attempts.get() + 1);
@@ -1821,7 +2051,7 @@ mod tests {
         let attempts = std::cell::Cell::new(0);
         let resets = std::cell::Cell::new(0);
         let result = retry_startup(
-            false,
+            &ui::Output::plain(false),
             Duration::ZERO,
             || {
                 attempts.set(attempts.get() + 1);
