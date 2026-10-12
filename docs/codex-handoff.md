@@ -3,11 +3,11 @@
 for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
 
-current candidate (2026-10-13): **persistent ordinary Linux client discovery**.
+current checkpoint (2026-10-13): **ordinary Linux ↔ iPhone discovery and recovery confirmed**.
 after the completed known-phone gate, Linux chat renews empty scan windows and returns to
 discovery after recoverable setup/link failures, using the existing persistent
 room. `--scan-only` stays finite; Windows lifecycle and BLE roles are unchanged.
-the user's comparison confirmed the saved-phone direct route still works; the
+the user's earlier comparison confirmed the saved-phone direct route still works; the
 bypass repeatedly saw one fresh device but zero service events/property UUID
 matches and no eligible candidate. that device's identity remains unconfirmed.
 the current fix verifies BitChat GATT over direct LE on bounded fresh UUID-less
@@ -18,8 +18,14 @@ announcements still gate user text. visible-UUID, desktop and Windows paths
 retain their connection choices. public/random discovered address types are
 supported; the explicit known-phone wrapper retains its public-address path.
 70 unit tests, twelve PTY cases, launcher smoke and strict Linux/Windows type
-checks pass. radio behavior is unverified; stop at
-[the ordinary-discovery device check](persistent-discovery.md#next-physical-gate).
+checks pass. the user tested `2db2ebc` with the saved-phone setting bypassed:
+three fresh direct-LE GATT verifications and signed announcements, short text
+both ways in the initial session, and incoming short text after each of two
+link recoveries in the same process. discovery continued through empty
+ten-second windows between sessions. this completes the ordinary-phone
+checkpoint; [evidence and remaining limits](persistent-discovery.md#physical-evidence).
+the run does not establish unpaired operation, random-address behavior,
+out-of-range recovery or native Windows success. stop before a new milestone.
 the earlier stop/pending instructions below describe the completed phone slice.
 the local graph is in ignored `graphify-out/`; use it for navigation, then verify
 source because its integrity report includes unresolved raw references and

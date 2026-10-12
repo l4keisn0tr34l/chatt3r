@@ -17,7 +17,7 @@ JPEG saves have been verified locally, including a repeat and two larger images.
 | --- | --- |
 | linux ↔ stock iphone bitchat text | user-confirmed on real devices |
 | quiet chat, colored nicknames, editable input | implemented; terminal-tested |
-| persistent ordinary Linux discovery | renews empty scan windows and rediscovers after recoverable link failure with the same room; software-tested, radio gate pending. `--scan-only` stays finite; [checkpoint](docs/persistent-discovery.md) |
+| persistent ordinary Linux discovery | Linux ↔ iPhone discovery with the saved-phone setting bypassed and two link recoveries confirmed on hardware; empty scan windows keep renewing. desktop/Windows recovery remains unverified; [checkpoint](docs/persistent-discovery.md) |
 | startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait. one missing-service retry followed by connection observed; established-link reconnect pending |
 | known-phone connection recovery | `--direct-le` with `--wait-for-peer` returns to waiting after a failed write or lost link. first app-close test exited on setup OS error 38; post-success retry correction is software-tested, physical close/reopen retest pending. no user-message replay |
 | persistent known-phone room | one terminal through setup, waiting and link changes; `/peers`, `/announce`, `/quit` stay usable. draft/history persist; text while waiting or during a write is explicitly rejected. PTY-tested with simulated BLE; phone validation pending |

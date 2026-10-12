@@ -2,20 +2,21 @@
 
 ## current checkpoint
 
-the Linux central/client candidate now keeps its room open when a scan window
+the Linux central/client now keeps its room open when a scan window
 ends without a peer and returns to discovery after recoverable setup or link
 failure. this covers stock BitChat discovery and explicit `--desktop-peer`;
-one link is managed at a time. **software-tested, not yet radio-confirmed**.
+one link is managed at a time. **Linux ↔ iPhone discovery and repeated link
+recovery are now hardware-confirmed**; desktop-service recovery remains unverified.
 the separately proven known-phone direct-LE path is preserved.
 
-latest physical comparison (2026-10-13): the saved-phone command established
+earlier physical comparison (2026-10-13): the saved-phone command established
 direct ATT/GATT, received a signed announcement and short text; the user said
 the first command works. the bypass scan still reported `observed=1`,
 `matching_advertisements=0`, `cached_uuid_matches=0`, `eligible=0` in successive
 windows. fresh device events reach the client, but they do not identify the
 BitChat service. the observed device is not proven to be the phone.
 
-the current candidate adds **bounded direct-LE service verification** for
+the `2db2ebc` fix adds **bounded direct-LE service verification** for
 fresh addresses lacking the UUID on the ordinary Linux stock-service chat
 path. it uses addresses and public/random address types from the current
 scan, not a saved-phone setting, device name or existing bond. the scan's
@@ -33,12 +34,43 @@ BlueZ's profile connect/disconnect on that candidate. socket/configuration
 failures remain fatal; remote service rejection, connection failure and probe
 timeout return to discovery. `--scan-only`, advertised-UUID candidates,
 desktop-service and Windows routes retain their existing connection choices.
-the probe fix is software-tested; automatic phone discovery remains unverified.
+the probe fix passed the ordinary-phone physical checkpoint described below.
+
+## physical evidence
+
+on 2026-10-13, the user ran `2db2ebc` with `CHATT3R_LE_PEER=` and ten-second
+scan windows, and explicitly reported that it works. the sanitized evidence is:
+
+- an initial empty scan window renewed, then a fresh UUID-less candidate passed
+  direct-LE BitChat GATT verification and supplied a signed announcement.
+- short text worked both ways in the initial session by user confirmation;
+  Linux recorded two outgoing two-byte texts and incoming two- and five-byte texts.
+- two signed leave/notification-closure events returned the same process to
+  discovery, with a five-second retry notice stating no message was replayed.
+- each return produced a new verified link, a fresh laptop session identity,
+  a signed phone announcement and incoming short text. between the second and
+  third sessions, two empty ten-second scan windows renewed.
+- all three connections reported ATT MTU 185 and configured writes of 128 bytes.
+
+this confirms discovery without a saved-phone lookup, continued waiting and
+two rediscoveries after link closure. it does not prove that the devices were
+unpaired: existing OS bonds were not changed. the transcript does not record
+the discovered address type, the cause of each closure, measured reconnect
+latency or fresh outgoing phone-side receipt after each return. five-minute
+absence, out-of-range/background behavior, file mode and native Windows remain
+outside this run. the final leave frame alone does not prove terminal cleanup.
+a BLE write remains submission evidence, not a delivery receipt.
+
+the ordinary-phone checkpoint is complete. stop before another lifecycle or
+role milestone; the procedure below is retained for repeat checks.
+
+## earlier discovery evidence
 
 first physical check (2026-10-13): the user's stock-service scan repeated
 ten-second windows and `/peers` returned zero, but no phone candidate appeared.
-room persistence is observed; automatic phone discovery and text on this path
-are **not confirmed**. this resembles the previously recorded BlueZ hidden-UUID
+room persistence was observed; automatic phone discovery and text on this path
+were **not confirmed by that earlier run**. this resembles the previously
+recorded BlueZ hidden-UUID
 issue, but the excerpt cannot establish whether any advertisement was forwarded.
 
 the earlier `1dfcf3e` correction retained a matching UUID from a fresh
@@ -65,7 +97,8 @@ setup diagnostics use `ui::Output` so a draft is redrawn rather than overwritten
 
 each `scan_ready_peer` window obtains a new adapter event stream and
 `FreshScan` evidence set. cached UUIDs and synthetic discoveries remain
-insufficient; a service match and fresh radio evidence are required. a fresh
+insufficient; fresh radio evidence and either a service match or eligibility
+for a bounded direct-LE verification are required. a fresh
 matching service event also supplies the service match; its UUID is no longer
 discarded in favor of possibly incomplete cached properties. a failed
 candidate is rejected for that window. a later window can consider it again
@@ -117,7 +150,9 @@ additional regressions cover fresh-only probe eligibility, rejection/ranking,
 rotation and bounds, public/random kernel ATT address encoding, and permanent
 local socket errors versus remote probe failures.
 
-## next physical gate
+<a id="next-physical-gate"></a>
+
+## physical check procedure
 
 quit an old client first. use the saved-phone bypass for this run only, with
 file mode off:
@@ -163,4 +198,5 @@ adapter reset or BLE role negotiation. if it succeeds, verify short text on
 both screens, then app close/reopen and fresh text in the same process. if it
 fails, share sanitized `[probe]`/`[scan-state]` lines and whether discovery
 continues; automatic phone communication is not established by a probe alone.
-stop at this gate before another lifecycle or role milestone.
+the ordinary-phone checkpoint above is complete; stop before another lifecycle
+or role milestone.
