@@ -22,7 +22,7 @@ binary = next(r["executable"] for r in records
               if r.get("reason") == "compiler-artifact" and r.get("executable"))
 
 
-def run_case(test, *, no_color=False, exit_key=None, module="ui::tests", recovery=False, room=False, scan=False):
+def run_case(test, *, no_color=False, exit_key=None, module="ui::tests", recovery=False, room=False, scan=False, paste=None):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     before = termios.tcgetattr(slave)
@@ -72,6 +72,19 @@ def run_case(test, *, no_color=False, exit_key=None, module="ui::tests", recover
             readable, _, _ = select.select([master], [], [], 0.1)
             if readable:
                 data += os.read(master, 65536)
+            if paste is not None:
+                if stage == 0 and b"you> " in data:
+                    os.write(master, b"\x1b[200~" + paste + b"\x1b[201~")
+                    stage = 1
+                elif stage == 1 and b"test: incoming during paste" in data:
+                    os.write(master, b"!\r")
+                    stage = 2
+                elif stage == 2 and b"test: recall pasted history" in data:
+                    os.write(master, b"\x1b[A ?\r")
+                    stage = 3
+                if proc.poll() is not None:
+                    break
+                continue
             if room:
                 if stage < len(steps):
                     marker, command = steps[stage]
@@ -99,6 +112,10 @@ def run_case(test, *, no_color=False, exit_key=None, module="ui::tests", recover
             raise RuntimeError(f"PTY test timed out: {data!r}")
         assert proc.returncode == 0, data
         assert termios.tcgetattr(slave) == before, "terminal mode not restored"
+        if paste is not None:
+            assert stage == 3 and b"test: pasted content intact" in data, data[-4000:]
+            assert b"\x1b[?2004h" in data and b"\x1b[?2004l" in data, "paste mode not restored"
+            return
         if room:
             assert stage == len(steps), data
             assert (b"late draft" if scan else b"persistent draft") in data, data
@@ -134,4 +151,6 @@ for key in (b"/quit\r", b"\x03", b"\x04"):
              module="tests", room=True, no_color=True, exit_key=key)
     run_case("empty_scan_windows_keep_one_room_and_cancel_cleanly",
              module="tests", scan=True, no_color=True, exit_key=key)
-print("12 PTY cases passed: draft redraw, NO_COLOR, exits, persistent room commands, empty scan windows, loss/return, no replay and write cancellation; terminal mode restored.")
+run_case("multiline_paste_preserves_whitespace", paste=b"  first line  \n\n\tindented line  \n/quit\n")
+run_case("full_size_paste_preserves_whitespace", paste=(b"  line\n\n\tindented  \n" * 900)[:16383])
+print("14 PTY cases passed: multiline/full-size paste, history, draft redraw, NO_COLOR, exits, persistent room commands, empty scan windows, loss/return, no replay and write cancellation; terminal and paste modes restored.")

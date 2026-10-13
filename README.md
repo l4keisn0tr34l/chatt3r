@@ -16,13 +16,13 @@ JPEG saves have been verified locally, including a repeat and two larger images.
 | feature | status |
 | --- | --- |
 | linux ↔ stock iphone bitchat text | user-confirmed on real devices |
-| quiet chat, colored nicknames, editable input | implemented; terminal-tested |
+| quiet chat, colored nicknames, editable input | implemented; terminal-tested. multiline paste preserves line breaks and whitespace in one draft; Enter sends; [text checkpoint](docs/text-formatting-checkpoint.md) |
 | persistent ordinary Linux discovery | Linux ↔ iPhone discovery with the saved-phone setting bypassed and two link recoveries confirmed on hardware; empty scan windows keep renewing. desktop/Windows recovery remains unverified; [checkpoint](docs/persistent-discovery.md) |
 | startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait. one missing-service retry followed by connection observed; established-link reconnect pending |
 | known-phone connection recovery | `--direct-le` with `--wait-for-peer` returns to waiting after a failed write or lost link. first app-close test exited on setup OS error 38; post-success retry correction is software-tested, physical close/reopen retest pending. no user-message replay |
 | persistent known-phone room | one terminal through setup, waiting and link changes; `/peers`, `/announce`, `/quit` stay usable. draft/history persist; text while waiting or during a write is explicitly rejected. PTY-tested with simulated BLE; phone validation pending |
 | known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
-| longer text / compression | **100/256/1,024-byte compressed numbered ASCII user-confirmed both ways on Linux ↔ iphone** after the reference-zlib correction; software tests cover Unicode and bounded compression/signing. native Windows longer-text radio validation pending |
+| longer text / compression | **16 KiB UTF-8 limit, software-tested** with compressed/uncompressed text and exact whitespace. **100/256/1,024-byte numbered ASCII confirmed both ways on Linux ↔ iPhone**; larger text and multiline phone receipt still need the [physical check](docs/text-formatting-checkpoint.md#next-physical-check). native Windows testing deferred |
 | public file receive | opt-in `--receive-files <existing-dir>` on Linux phone link; **four iPhone JPEG saves verified locally**: 3,485 bytes twice with identical hashes, plus 39,907 and 44,478 bytes; all fully decode. user visually confirmed the first image; original-byte/hash comparison unavailable. earlier MTU 517/value 514 and full 504-byte fragments were confirmed; the earlier 46-part image and compressed-fragment behavior still need specific radio evidence. no sending, private files, or general media guarantee |
 | private/encrypted messages | not supported yet |
 | windows → stock iphone text | user-confirmed on native windows; reverse direction not separately confirmed |

@@ -1219,8 +1219,6 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 [[package]]
 name = "rustyline-async"
 version = "0.4.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b76450411764ae23570aa50bae870dac68db933268df2ab3a577d641299d93a2"
 dependencies = [
  "ansi-width",
  "crossterm",

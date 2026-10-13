@@ -3,7 +3,7 @@ use rustyline_async::{Readline, ReadlineEvent, SharedWriter};
 use std::io::{self, IsTerminal, Write};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 
-use crate::{display, Result};
+use crate::{display, display_message, Result};
 
 pub enum Input {
     Terminal(Readline),
@@ -75,7 +75,7 @@ impl Output {
     }
 
     pub fn message(&self, name: &str, id: &[u8; 8], text: &str) -> String {
-        format!("[{}] {}", self.peer(name, id), display(text))
+        format!("[{}] {}", self.peer(name, id), display_message(text))
     }
 }
 
@@ -149,13 +149,17 @@ mod tests {
         assert_eq!(output.message("a\x1b", &[0; 8], "hi\r"), "[a\\u{1b}] hi\\r");
         let colored = Output {
             colors: true,
-            ..output
+            ..output.clone()
         };
         assert_eq!(
             colored.message("iphone", &[0; 8], "hello"),
             "[\x1b[1;32miphone\x1b[0m] hello"
         );
         assert_eq!(colored.own(), "\x1b[1;36myou\x1b[0m");
+        assert_eq!(
+            output.message("iphone\n", &[0; 8], "  first  \r\n\n\tsecond  \n\x1b[2J"),
+            "[iphone\\n]   first  \n\n\tsecond  \n\\u{1b}[2J"
+        );
     }
 
     /// Run under a PTY: type "draft text" with an incoming message mid-draft.
@@ -189,5 +193,40 @@ mod tests {
         let (mut input, _output) = open(false).unwrap();
         assert!(matches!(input, Input::Terminal(_)));
         assert!(input.next_line().await.unwrap().is_none());
+    }
+
+    async fn paste_round_trip(expected: String) {
+        let (mut input, output) = open(false).unwrap();
+        let incoming = output.clone();
+        let print = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            incoming.line("test: incoming during paste").unwrap();
+        });
+        assert_eq!(
+            input.next_line().await.unwrap(),
+            Some(format!("{expected}!"))
+        );
+        print.await.unwrap();
+        // Recall and edit the complete multiline draft, not separate lines.
+        output.line("test: recall pasted history").unwrap();
+        assert_eq!(
+            input.next_line().await.unwrap(),
+            Some(format!("{expected}! ?"))
+        );
+        output.line("test: pasted content intact").unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an interactive PTY"]
+    async fn multiline_paste_preserves_whitespace() {
+        paste_round_trip("  first line  \n\n\tindented line  \n/quit\n".into()).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an interactive PTY"]
+    async fn full_size_paste_preserves_whitespace() {
+        let mut text = "  line\n\n\tindented  \n".repeat(900);
+        text.truncate(16383);
+        paste_round_trip(text).await;
     }
 }

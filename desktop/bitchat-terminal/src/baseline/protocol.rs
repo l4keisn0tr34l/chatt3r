@@ -15,6 +15,7 @@ pub const FRAGMENT: u8 = 0x20;
 const MAX_CONTROL_PAYLOAD: usize = 99; // Preserve the proven uncompressed announcement/leave subset.
 const MAX_FRAME: usize = 16 * 1024;
 const MAX_TEXT_FRAME: usize = 16 + 8 + 8 + 4 + MAX_TEXT_BYTES + 64 + 255;
+const MAX_TEXT_PARTS: usize = 1024;
 
 /// Metadata-only frame shape for diagnosing rejected notifications. Never
 /// include sender, recipient, fragment ID, content or a signature in logs.
@@ -86,7 +87,12 @@ impl Packet {
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, &'static str> {
-        if !matches!(self.version, 1 | 2) || self.payload.len() > MAX_FRAME {
+        let payload_cap = if self.kind == MESSAGE {
+            MAX_TEXT_BYTES + 4
+        } else {
+            MAX_FRAME
+        };
+        if !matches!(self.version, 1 | 2) || self.payload.len() > payload_cap {
             return Err("unsupported version or oversized payload");
         }
         self.check_text_bounds()?;
@@ -114,7 +120,15 @@ impl Packet {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, &'static str> {
-        if bytes.len() < 22 || bytes.len() > MAX_FRAME {
+        if bytes.len() < 22 {
+            return Err("invalid frame size");
+        }
+        let frame_cap = if bytes[1] == MESSAGE {
+            MAX_TEXT_FRAME
+        } else {
+            MAX_FRAME
+        };
+        if bytes.len() > frame_cap {
             return Err("invalid frame size");
         }
         let header = match bytes[0] {
@@ -137,7 +151,12 @@ impl Packet {
         } else {
             u32::from_be_bytes(bytes[12..16].try_into().unwrap()) as usize
         };
-        if length > MAX_FRAME {
+        let payload_cap = if bytes[1] == MESSAGE {
+            MAX_TEXT_BYTES + 4
+        } else {
+            MAX_FRAME
+        };
+        if length > payload_cap {
             return Err("declared payload exceeds baseline cap");
         }
         if bytes[1] == MESSAGE
@@ -190,7 +209,7 @@ impl Packet {
             if self.compressed {
                 text_payload::original_size(&self.payload, self.version)?;
             } else if self.payload.len() > MAX_TEXT_BYTES {
-                return Err("public text exceeds 1024-byte budget");
+                return Err("public text exceeds 16384-byte budget");
             }
         }
         Ok(())
@@ -344,7 +363,12 @@ pub fn frames(packet: &Packet, write_limit: usize) -> Result<Vec<Vec<u8>>, &'sta
         .filter(|n| *n > 0)
         .ok_or("write limit too small for fragment header")?;
     let count = encoded.len().div_ceil(chunk_size);
-    if count > 256 {
+    let max_parts = if packet.kind == MESSAGE {
+        MAX_TEXT_PARTS
+    } else {
+        256
+    };
+    if count > max_parts {
         return Err("too many fragments; increase write limit");
     }
     let id: [u8; 8] = rand::random();
@@ -393,7 +417,8 @@ impl Reassembler {
         let index = u16::from_be_bytes(packet.payload[8..10].try_into().unwrap()) as usize;
         let total = u16::from_be_bytes(packet.payload[10..12].try_into().unwrap()) as usize;
         let kind = packet.payload[12];
-        if total == 0 || total > 256 || index >= total {
+        let max_parts = if kind == MESSAGE { MAX_TEXT_PARTS } else { 256 };
+        if total == 0 || total > max_parts || index >= total {
             return Err("invalid fragment index/count");
         }
         if !matches!(kind, ANNOUNCE | MESSAGE | LEAVE) {
@@ -605,7 +630,7 @@ mod tests {
         conflict.payload[13] ^= 1;
         assert!(collector.accept(conflict).is_err());
         assert!(collector.pending.is_empty());
-        for total in [0_u16, 257, u16::MAX] {
+        for total in [0_u16, MAX_TEXT_PARTS as u16 + 1, u16::MAX] {
             let mut invalid = first.clone();
             invalid.payload[10..12].copy_from_slice(&total.to_be_bytes());
             assert!(collector.accept(invalid).is_err());
@@ -626,6 +651,26 @@ mod tests {
         }
         assert!(collector.accept(first).unwrap().is_none());
         assert_eq!(collector.pending.len(), 1);
+    }
+
+    #[test]
+    fn larger_text_keeps_control_caps_and_rejects_oversized_claims() {
+        let key = SigningKey::from_bytes(&[0x42; 32]);
+        let mut packet = Packet::new(MESSAGE, [0x11; 8], 1, vec![b'a'; MAX_TEXT_BYTES]);
+        packet.sign(&key).unwrap();
+        let mut oversized = packet.encode().unwrap();
+        oversized[22..24].copy_from_slice(&((MAX_TEXT_BYTES + 1) as u16).to_be_bytes());
+        assert!(Packet::decode(&oversized).is_err());
+        let mut collector = Reassembler::default();
+        let mut fragment = Packet::new(FRAGMENT, packet.sender, 1, vec![0; 14]);
+        fragment.payload[10..12].copy_from_slice(&257_u16.to_be_bytes());
+        fragment.payload[12] = ANNOUNCE;
+        assert!(collector.accept(fragment).is_err());
+        assert!(
+            Packet::new(ANNOUNCE, packet.sender, 1, vec![0; MAX_FRAME + 1])
+                .encode()
+                .is_err()
+        );
     }
 
     #[test]

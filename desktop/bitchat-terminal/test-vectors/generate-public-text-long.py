@@ -58,7 +58,11 @@ cases = [case("unchanged-99", b"a" * 99, compressed=False),
          case("numbered-1024", b"".join(f"{i:04d}-".encode() for i in range(205))[:1024]),
          case("unicode-1024-v1", "🙂".encode() * 256),
          case("unicode-1024-v2", "🙂".encode() * 256, version=2),
-         case("diverse-1024", diverse, compressed=False)]
+         case("diverse-1024", diverse, compressed=False),
+         case("formatted-multiline", b"  first line  \n\n\tindented line  \nlast line\n", compressed=False),
+         case("unicode-16384-v1", "🙂".encode() * 4096),
+         case("unicode-16384-v2", "🙂".encode() * 4096, version=2),
+         case("diverse-16384", diverse * 16, compressed=False)]
 assert len(bytes.fromhex(next(c for c in cases if c["label"] == "text-256")["decoded_hex"])) == 256
 print(json.dumps(dict(description="synthetic signed public text; reference zlib at Apple's documented settings, not Apple execution or radio evidence",
                      seed_hex="42" * 32, public_key_hex=public.hex(), cases=cases), indent=2))

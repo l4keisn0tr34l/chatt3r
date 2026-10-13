@@ -1,10 +1,10 @@
 //! Bounded public-text compression, following pinned Unlicensed BitFoundation.
 //! Reference zlib level 5 matches Apple's documented COMPRESSION_ZLIB
-//! configuration; stock-phone compatibility still needs a physical test.
+//! configuration; payloads beyond the earlier 1 KiB checkpoint need radio tests.
 use flate2::{write::DeflateEncoder, Compression, Decompress, FlushDecompress, Status};
 use std::io::Write;
 
-pub const MAX_TEXT_BYTES: usize = 1024;
+pub const MAX_TEXT_BYTES: usize = 16 * 1024;
 const COMPRESSION_THRESHOLD: usize = 100;
 const MAX_FRAGMENT_BYTES: usize = 1024;
 
@@ -21,7 +21,7 @@ fn length_width(version: u8) -> Result<usize, &'static str> {
 pub fn compress_text(payload: &[u8], version: u8) -> Result<Option<Vec<u8>>, &'static str> {
     let width = length_width(version)?;
     if payload.len() > MAX_TEXT_BYTES {
-        return Err("public text exceeds 1024-byte budget");
+        return Err("public text exceeds 16384-byte budget");
     }
     if payload.len() < COMPRESSION_THRESHOLD {
         return Ok(None);
@@ -128,14 +128,14 @@ mod tests {
         for version in [1, 2] {
             let wire = compress_text(&[b'a'; 100], version).unwrap().unwrap();
             assert_eq!(inflate_text(&wire, version).unwrap(), [b'a'; 100]);
-            let maximum = "🙂".repeat(256).into_bytes();
+            let maximum = "🙂".repeat(MAX_TEXT_BYTES / 4).into_bytes();
             let wire = compress_text(&maximum, version).unwrap().unwrap();
             assert_eq!(original_size(&wire, version).unwrap(), MAX_TEXT_BYTES);
             assert_eq!(inflate_text(&wire, version).unwrap(), maximum);
         }
         let diverse: Vec<u8> = (0..=255).cycle().take(1024).collect();
         assert!(compress_text(&diverse, 1).unwrap().is_none());
-        assert!(compress_text(&[b'a'; 1025], 1).is_err());
+        assert!(compress_text(&vec![b'a'; MAX_TEXT_BYTES + 1], 1).is_err());
     }
 
     #[test]

@@ -1,5 +1,10 @@
 # longer public text: iphone hardware checkpoint
 
+current follow-up (2026-10-13): the user requested **16 KiB** and multiline
+paste preservation. the new software candidate and its next radio check are
+in [text-formatting-checkpoint.md](text-formatting-checkpoint.md). the evidence
+and implementation limits below describe the earlier 1,024-byte checkpoint.
+
 status (2026-10-08): `chatt3r` can encode, sign, fragment, verify and display
 public text up to **1,024 UTF-8 bytes** in software tests. after the
 reference-zlib correction in `8699b17`, the user confirmed **100-, 256- and

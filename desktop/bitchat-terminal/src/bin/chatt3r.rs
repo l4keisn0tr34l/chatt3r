@@ -93,11 +93,11 @@ Usage: chatt3r --write-limit <bytes> [--name <nickname>] [--debug]\n\
 --write-limit: operator-provided characteristic value limit, NOT measured MTU (36..512).\n\
 --scan-seconds: scan window length; Linux chat keeps scanning, --scan-only ends after one window.\n\
 --receive-files <existing-dir>: opt-in small public file receive on Linux phone link; saves .bin only.\n\
-Public text up to 1024 UTF-8 bytes (phone numbered-ASCII confirmed both ways; Windows longer text pending). No confidentiality, DMs, file sending or relaying.\n\
+Public text up to 16384 UTF-8 bytes (16 KiB; phone confirmed through 1024 bytes, larger text pending). No confidentiality, DMs, file sending or relaying.\n\
 For phone mode keep stock BitChat open on iPhone in its public room; desktop mode needs Windows --host.\n\
 Commands: /peers, /announce, /quit. Ctrl-C / Ctrl-D exit. Run without sudo first.\n\
 Quiet by default; --debug shows BLE diagnostics. Nicknames are colored per peer.\n\
-Arrow keys edit/recall input; incoming messages preserve your draft. NO_COLOR disables colors."
+Arrow keys edit/recall input; incoming messages preserve your draft. Multiline paste stays one draft; Enter sends. NO_COLOR disables colors."
                 );
                 return Ok(None);
             }
@@ -191,6 +191,20 @@ fn display(text: &str) -> String {
     text.chars()
         .flat_map(|c| {
             if c.is_control() {
+                c.escape_default().collect::<Vec<_>>()
+            } else {
+                vec![c]
+            }
+        })
+        .collect()
+}
+
+/// Message whitespace is content; other terminal controls remain escaped.
+fn display_message(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .chars()
+        .flat_map(|c| {
+            if c.is_control() && !matches!(c, '\n' | '\t') {
                 c.escape_default().collect::<Vec<_>>()
             } else {
                 vec![c]
@@ -1192,12 +1206,12 @@ async fn chat_session(
                         continue;
                     }
                     "/announce" => { announce_tick.reset_immediately(); continue; }
-                    _ if line.starts_with('/') => { output.line("Unsupported command; use /peers, /announce, /quit")?; continue; }
+                    _ if line.starts_with('/') && !line.contains('\n') => { output.line("Unsupported command; use /peers, /announce, /quit")?; continue; }
                     _ => {}
                 }
                 if receiver.peers.is_empty() { output.line("Waiting for a peer announcement. Check the other peer is running, then resend.")?; continue; }
                 if line.len() > MAX_TEXT_BYTES { output.line(&format!("Limit: {MAX_TEXT_BYTES} UTF-8 bytes; shorten the message."))?; continue; }
-                let sent_text = display(&line);
+                let sent_text = display_message(&line);
                 let mut packet = Packet::new(MESSAGE, local, now_ms(), line.into_bytes());
                 packet.sign(&signing)?;
                 if !room.write(send(&writer, &packet, limit, &output), receiver, persistent).await? { return Ok(()); }
@@ -2295,6 +2309,8 @@ mod tests {
             vec![b'a'; 100],
             vec![b'b'; 256],
             "🙂".repeat(256).into_bytes(),
+            "🙂".repeat(MAX_TEXT_BYTES / 4).into_bytes(),
+            b"  first line  \n\n\tindented line  \nlast line\n".to_vec(),
             diverse,
         ];
         let mut compressed_fragments = 0;

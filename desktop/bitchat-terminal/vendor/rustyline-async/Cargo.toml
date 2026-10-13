@@ -1,0 +1,22 @@
+[package]
+name = "rustyline-async"
+version = "0.4.9"
+license = "Unlicense"
+description = "A minimal readline with multiline and async support."
+documentation = "https://docs.rs/rustyline-async"
+repository = "https://github.com/zyansheep/rustyline-async"
+readme = "README.md"
+edition = "2021"
+
+[dependencies]
+crossterm = { version = "0.29", features = ["event-stream"] }
+futures-util = { version = "0.3", features = ["io"] }
+pin-project = "1.1"
+thingbuf = "0.1"
+thiserror = "2.0.18"
+unicode-segmentation = "1.12"
+ansi-width = "0.1.0"
+
+[features]
+default = ["emacs"]
+emacs = []
