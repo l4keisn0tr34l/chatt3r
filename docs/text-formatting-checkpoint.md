@@ -14,6 +14,18 @@ formatter retains content slices. no blanket removal of internal newlines was
 identified in those inspected paths. chatt3r's exact-whitespace software tests
 remain valid; the new 16 KiB radio limit is still unverified.
 
+first 16 KiB outbound check: the user reports no iPhone receipt. two earlier
+submissions were rejected by the local 16,384-byte guard; their input sizes
+were not recorded. a later numbered-ASCII attempt with the 16,384-byte end
+marker was submitted as a 6,430-byte compressed payload over 71 frames at
+configured limit 128. the submission completed and incoming announcements
+continued. this establishes neither phone acceptance nor displayed receipt;
+no link failure is shown. 2/8 KiB results and installed app version remain
+unknown. inspect the phone's collapsed-message UI before diagnosing a codec
+or assembly failure. the pinned stock public-text receive cap is 128 KiB,
+with a 60,000-character sending guard; these do not establish the installed
+version's limits or rule out another rejection path.
+
 ## changes and data flow
 
 `baseline/text_payload.rs:MAX_TEXT_BYTES` now allows **16,384 UTF-8 bytes**,
