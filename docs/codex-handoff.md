@@ -16,6 +16,10 @@ pass; the launcher binary is rebuilt. these are software checks, not new radio
 evidence. stop at [multiline receipt and larger text on the phone](text-formatting-checkpoint.md#next-physical-check).
 the earlier 1,024-byte phone success remains the physically proven text limit.
 native Windows testing remains deferred; no discovery or role changes.
+the user subsequently attributed flattened formatting to stock BitChat,
+rather than chatt3r. treat this as an installed-app observation; separate
+phone presentation from payload preservation and delivery. no further source
+change is requested. the 16 KiB radio gate remains pending.
 
 previous checkpoint (2026-10-13): **ordinary Linux ↔ iPhone discovery and recovery confirmed**.
 after the completed known-phone gate, Linux chat renews empty scan windows and returns to

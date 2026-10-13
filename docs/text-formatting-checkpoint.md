@@ -5,6 +5,15 @@ requested 16 KiB per message and preservation of pasted whitespace. previous
 Linux ↔ iPhone radio evidence confirms short text and 100/256/1,024-byte
 numbered ASCII both ways; it does not establish the new upper limit.
 
+user correction (2026-10-13): the user attributes the flattened formatting to
+stock BitChat rather than chatt3r. record this as an observation about the
+installed app, not a verified transport fault or a claim about every BitChat
+version. the pinned reference at `5e9287fa` trims outer whitespace in some
+paths (`ChatOutgoingCoordinator` local echo and `String+Ext.swift`); its text
+formatter retains content slices. no blanket removal of internal newlines was
+identified in those inspected paths. chatt3r's exact-whitespace software tests
+remain valid; the new 16 KiB radio limit is still unverified.
+
 ## changes and data flow
 
 `baseline/text_payload.rs:MAX_TEXT_BYTES` now allows **16,384 UTF-8 bytes**,
@@ -67,9 +76,12 @@ CHATT3R_LE_PEER= ./scripts/chatt3r --name laptop --debug --scan-seconds 10
 1. wait for the signed peer announcement and verify short text both ways.
 2. paste a harmless multiline message with a blank line, indentation and
    trailing spaces. it must stay one draft until Enter and arrive as one
-   message with line breaks/spacing on the iPhone. send multiline text back
+   received message on the iPhone. note any phone-side formatting changes
+   separately; if it looks flattened, copy the received message into an editor
+   to distinguish display formatting from stored text. send multiline text back
    and check the laptop display. neither successful writes nor local echo
-   establish phone receipt.
+   establish phone receipt, and flattened phone display alone is not a
+   transport-failure diagnosis.
 3. test numbered ASCII at 2,048, 8,192 and 16,384 bytes, both ways where the
    stock app permits composing it. check the final marker and one complete
    message. test 16,385 bytes on the laptop: it must reject before transmission.
