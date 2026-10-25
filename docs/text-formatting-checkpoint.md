@@ -26,6 +26,51 @@ or assembly failure. the pinned stock public-text receive cap is 128 KiB,
 with a 60,000-character sending guard; these do not establish the installed
 version's limits or rule out another rejection path.
 
+## reverse success and paragraph return failure
+
+the next user test on 2026-10-26 established authenticated iPhone → Linux
+delivery of **16,383 UTF-8 bytes** of prose. `[rx-text]` reports **1,153 wire
+payload bytes**, `compressed=true` and `local_reencode_matches=true`.
+the receiver verifies before displaying this line. local recompression matched
+the actual phone encoding for this message, including its compression state;
+that finding is specific to this payload/version and does not establish a
+canonical match for every input. the user-provided prose is kept out of git.
+
+the user then pasted the same paragraph into the laptop and explicitly reported
+no phone receipt after **14/14 frames in 1,329 ms**. the outgoing size line was
+not retained, so byte identity of the copy is not independently established.
+a further exact 16,384-byte repetitive sample submitted **2/2 frames in 179 ms**
+and was also reported absent. the observed link retained ATT MTU **185**,
+value limit **182**, configured writes **128**. phone → Linux at exactly
+16,384 bytes, large Linux → phone acceptance, and the old rejected reverse
+packet's size remain unverified. no compression/signature/size policy is changed.
+
+## next single frame check
+
+the repetitive control has **70 wire payload bytes** and a **156-byte signed
+packet** (22-byte v1 header/sender plus 64-byte signature). current configured
+limit 128 forces two fragments even though the observed negotiated link can
+carry 182 value bytes. the existing encoder returns the complete packet
+unchanged when it fits; at configured limit 182 this control uses one write.
+the direct-LE backend still clamps the operator limit to the negotiated value.
+the synthetic fixture and source establish the expected shape, not receipt.
+
+stop the old client and run this one-command override:
+
+```bash
+cd ~/dev/offline-link
+CHATT3R_LE_PEER= ./scripts/chatt3r --name laptop --debug --scan-seconds 10 --write-limit 182
+```
+
+after a fresh signed announcement and short-text check, send the exact
+repetitive control once. expect `[tx]` to show `payload_bytes=16384`,
+`wire_payload_bytes=70`, `frames=1` and `configured_limit=182` on a link with
+the previously observed MTU. explicitly check for the full ending marker on
+the phone and retain only sanitized metadata. this is an existing CLI override;
+launcher defaults, requested MTU, discovery/roles and saved settings are unchanged.
+it removes fragmentation from this control and is not a demonstrated fix.
+stop for physical receipt evidence before changing protocol behavior.
+
 ## two-sample physical result
 
 on 2026-10-26, the user tested the diagnostic build and explicitly reported

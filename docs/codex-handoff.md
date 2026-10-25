@@ -3,6 +3,22 @@
 for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
 
+current result (2026-10-26): **iPhone → Linux 16,383-byte prose confirmed;
+large Linux → iPhone still fails**. the authenticated incoming message reports
+1,153 wire payload bytes, compression enabled and `local_reencode_matches=true`.
+that proves identical local encoding for this payload, not every possible text.
+the user pasted the same paragraph back: 14/14 frames submitted in 1,329 ms,
+but explicitly no iPhone receipt; its outgoing size line was not retained.
+the 16,384-byte repetitive control again submitted 2/2 in 179 ms with no
+receipt. neither direction is justified as a universal 16 KiB guarantee.
+
+next gate uses the existing `--write-limit 182` override with the observed
+ATT MTU 185/value 182. the repetitive control's signed packet is 156 bytes,
+so it takes one write at 182 instead of two fragments at 128. source/defaults,
+MTU, roles and saved-phone settings are unchanged. stop at
+[the one-frame control](text-formatting-checkpoint.md#next-single-frame-check).
+do not copy the user's prose, device identifiers or raw logs into public files.
+
 latest physical result (2026-10-26): **both 16 KiB outbound samples failed;
 reverse text reached a bounds rejection**. the repetitive sample submitted
 2/2 frames in 268 ms and the numbered sample 71/71 in 6,598 ms. the user
