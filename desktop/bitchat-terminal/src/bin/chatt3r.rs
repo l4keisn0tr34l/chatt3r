@@ -439,19 +439,39 @@ async fn send(
     output: &ui::Output,
 ) -> Result<()> {
     let frames = protocol::frames(packet, limit)?;
+    let payload_bytes = if packet.kind == MESSAGE && packet.is_compressed() {
+        bitchat_poc::text_payload::original_size(&packet.payload, packet.version)?
+    } else {
+        packet.payload.len()
+    };
     output.diagnostic(&format!(
-        "[tx] type=0x{:02x} wire_payload_bytes={} compressed={} frames={} configured_limit={limit}",
+        "[tx] type=0x{:02x} payload_bytes={payload_bytes} wire_payload_bytes={} compressed={} frames={} configured_limit={limit}",
         packet.kind,
         packet.payload.len(),
         packet.is_compressed(),
         frames.len()
     ))?;
-    for frame in frames {
+    let total = frames.len();
+    let started = Instant::now();
+    for (index, frame) in frames.into_iter().enumerate() {
         timeout(Duration::from_secs(10), writer.write(&frame))
             .await
             .map_err(|_| link_failure("BLE write timed out; delivery is unknown"))?
             .map_err(|e| link_failure(write_error_message(&e.to_string())))?;
         sleep(Duration::from_millis(20)).await;
+        if packet.kind == MESSAGE && (index + 1).is_multiple_of(32) && index + 1 < total {
+            output.diagnostic(&format!(
+                "[tx-progress] frames_submitted={}/{total} elapsed_ms={}",
+                index + 1,
+                started.elapsed().as_millis()
+            ))?;
+        }
+    }
+    if packet.kind == MESSAGE {
+        output.diagnostic(&format!(
+            "[tx-complete] frames_submitted={total}/{total} elapsed_ms={} delivery=unconfirmed",
+            started.elapsed().as_millis()
+        ))?;
     }
     Ok(()) // GATT success is not a remote message delivery acknowledgement.
 }
@@ -564,11 +584,17 @@ impl Receiver {
         }
         match packet.kind {
             MESSAGE => {
-                output.diagnostic(&format!(
-                    "[rx-text] payload_bytes={} compressed={}",
-                    payload.len(),
-                    packet.is_compressed()
-                ))?;
+                if output.debug {
+                    let comparison = match packet.text_reencoding_matches(&payload) {
+                        Ok(true) => "true",
+                        Ok(false) => "false",
+                        Err(_) => "unavailable",
+                    };
+                    output.diagnostic(&format!(
+                        "[rx-text] payload_bytes={} wire_payload_bytes={} compressed={} local_reencode_matches={comparison}",
+                        payload.len(), packet.payload.len(), packet.is_compressed()
+                    ))?;
+                }
                 output.line(&output.message(name, &packet.sender, text.unwrap()))?;
             }
             LEAVE => {
@@ -1210,13 +1236,13 @@ async fn chat_session(
                     _ => {}
                 }
                 if receiver.peers.is_empty() { output.line("Waiting for a peer announcement. Check the other peer is running, then resend.")?; continue; }
-                if line.len() > MAX_TEXT_BYTES { output.line(&format!("Limit: {MAX_TEXT_BYTES} UTF-8 bytes; shorten the message."))?; continue; }
+                if line.len() > MAX_TEXT_BYTES { output.line(&format!("Limit: {MAX_TEXT_BYTES} UTF-8 bytes; got {} bytes. Shorten the message.", line.len()))?; continue; }
                 let sent_text = display_message(&line);
                 let mut packet = Packet::new(MESSAGE, local, now_ms(), line.into_bytes());
                 packet.sign(&signing)?;
                 if !room.write(send(&writer, &packet, limit, &output), receiver, persistent).await? { return Ok(()); }
                 output.line(&format!("[{}] {sent_text}", output.own()))?;
-                output.diagnostic("[tx] BLE frame submitted; verify receipt on the other peer (no application ACK).")?;
+                output.diagnostic("[tx] BLE frames submitted; verify receipt on the other peer (no application ACK).")?;
             }
             notification = notifications.next() => {
                 let Some(notification) = notification else { return Err(link_failure("notification stream ended")); };
@@ -1624,6 +1650,49 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn exact_16_kib_sample_submits_71_frames_and_stops_on_failure() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../test-vectors/public-text-long.json")).unwrap();
+        let case = fixture["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["label"] == "hardware-numbered-16384")
+            .unwrap();
+        let packet =
+            Packet::decode(&hex::decode(case["wire_hex"].as_str().unwrap()).unwrap()).unwrap();
+        assert_eq!(packet.payload.len(), 6430); // Matches the recorded radio submission.
+        let output = ui::Output::plain(true);
+        for fail_after in [usize::MAX, 32] {
+            let link = TestLink {
+                writes: Default::default(),
+                fail_after,
+            };
+            let result = send(&LinkWriter::Test(&link), &packet, 128, &output).await;
+            if fail_after == 32 {
+                assert!(result.unwrap_err().is::<LinkFailure>());
+                assert_eq!(link.writes.borrow().len(), 32);
+            } else {
+                result.unwrap();
+                assert_eq!(link.writes.borrow().len(), 71);
+                let mut collector = Reassembler::default();
+                let completed = link
+                    .writes
+                    .borrow()
+                    .iter()
+                    .filter_map(|wire| collector.accept(Packet::decode(wire).unwrap()).unwrap())
+                    .collect::<Vec<_>>();
+                assert_eq!(completed, [packet.clone()]);
+                let key = SigningKey::from_bytes(&[0x42; 32]).verifying_key();
+                assert_eq!(
+                    completed[0].verified_payload(&key).unwrap().len(),
+                    MAX_TEXT_BYTES
+                );
+            }
+        }
+    }
 
     #[tokio::test]
     #[ignore = "requires an interactive PTY"]

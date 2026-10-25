@@ -219,6 +219,17 @@ impl Packet {
         self.compressed
     }
 
+    /// Diagnostic only, after authentication. Swift rebuilds this encoding when
+    /// verifying signatures; do not replace the received verification bytes.
+    pub fn text_reencoding_matches(&self, decoded: &[u8]) -> Result<bool, &'static str> {
+        if self.kind != MESSAGE {
+            return Err("re-encoding comparison requires public text");
+        }
+        let reencoded = text_payload::compress_text(decoded, self.version)?;
+        Ok(reencoded.is_some() == self.compressed
+            && reencoded.as_deref().unwrap_or(decoded) == self.payload)
+    }
+
     fn signing_bytes(&self) -> Result<Vec<u8>, &'static str> {
         self.check_text_bounds()?;
         if self.kind != MESSAGE && (self.compressed || self.payload.len() > MAX_CONTROL_PAYLOAD) {
@@ -729,6 +740,7 @@ mod tests {
             );
             let expected = hex::decode(case["decoded_hex"].as_str().unwrap()).unwrap();
             assert_eq!(&*packet.verified_payload(&key).unwrap(), expected);
+            assert!(packet.text_reencoding_matches(&expected).unwrap());
             assert_eq!(
                 packet.is_compressed(),
                 case["compressed"].as_bool().unwrap()
@@ -792,6 +804,29 @@ mod tests {
         unsupported[11] = 0x06;
         unsupported[1] = ANNOUNCE;
         assert!(Packet::decode(&unsupported).is_err());
+    }
+
+    #[test]
+    fn diagnostic_compression_mismatch_does_not_reject_authenticated_text() {
+        use ed25519_dalek::Signer;
+        use flate2::{write::DeflateEncoder, Compression};
+        use std::io::Write;
+        let payload = (0..3300).map(|i| format!("{i:04}-")).collect::<String>();
+        let payload = &payload.as_bytes()[..MAX_TEXT_BYTES];
+        let key = SigningKey::from_bytes(&[0x42; 32]);
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(payload).unwrap();
+        let mut wire = (payload.len() as u16).to_be_bytes().to_vec();
+        wire.extend(encoder.finish().unwrap());
+        let mut packet = Packet::new(MESSAGE, [0x11; 8], 1, wire);
+        packet.compressed = true;
+        packet.signature = Some(key.sign(&packet.signing_bytes().unwrap()).to_bytes());
+        let verified = packet.verified_payload(&key.verifying_key()).unwrap();
+        assert_eq!(&*verified, payload);
+        assert!(!packet.text_reencoding_matches(&verified).unwrap());
+        assert!(Packet::new(ANNOUNCE, [0; 8], 1, vec![])
+            .text_reencoding_matches(b"")
+            .is_err());
     }
 
     #[test]

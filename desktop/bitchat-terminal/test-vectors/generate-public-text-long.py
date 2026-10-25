@@ -50,6 +50,20 @@ diverse = ("".join(chr(i) for i in range(128))
 diverse += b"a" * (1024 - len(diverse))
 assert len(set(diverse)) >= 231 and len(diverse) == 1024
 
+def numbered_sample(size):
+    start = f"BEGIN-{size} ".encode()
+    end = f" END-{size}".encode()
+    body = b"".join(f"{i:04d}-".encode() for i in range(size // 5 + 1))
+    payload = start + body[:size - len(start) - len(end)] + end
+    assert len(payload) == size
+    return payload
+
+
+repeat_control = b"BEGIN-REPEAT-16384 "
+repeat_end = b" END-REPEAT-16384"
+repeat_control += b"a" * (16384 - len(repeat_control) - len(repeat_end)) + repeat_end
+assert len(repeat_control) == 16384
+
 cases = [case("unchanged-99", b"a" * 99, compressed=False),
          case("threshold-100", b"a" * 100),
          case("numbered-100", b"".join(f"{i:04d}-".encode() for i in range(20))),
@@ -62,6 +76,10 @@ cases = [case("unchanged-99", b"a" * 99, compressed=False),
          case("formatted-multiline", b"  first line  \n\n\tindented line  \nlast line\n", compressed=False),
          case("unicode-16384-v1", "🙂".encode() * 4096),
          case("unicode-16384-v2", "🙂".encode() * 4096, version=2),
+         case("hardware-numbered-2048", numbered_sample(2048)),
+         case("hardware-numbered-8192", numbered_sample(8192)),
+         case("hardware-numbered-16384", numbered_sample(16384)),
+         case("hardware-repeat-16384", repeat_control),
          case("diverse-16384", diverse * 16, compressed=False)]
 assert len(bytes.fromhex(next(c for c in cases if c["label"] == "text-256")["decoded_hex"])) == 256
 print(json.dumps(dict(description="synthetic signed public text; reference zlib at Apple's documented settings, not Apple execution or radio evidence",

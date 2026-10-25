@@ -26,6 +26,64 @@ or assembly failure. the pinned stock public-text receive cap is 128 KiB,
 with a 60,000-character sending guard; these do not establish the installed
 version's limits or rule out another rejection path.
 
+## diagnostic follow-up
+
+on 2026-10-26 the user resumed this checkpoint without new receipt evidence.
+the inspected stock `BLEFragmentHandler`, `BLEFragmentAssemblyBuffer`,
+`BinaryProtocol` and `BitchatPacket.toBinaryDataForSigning` paths do not expose
+a size/count limit that would explain the recorded 6,430-byte, 71-part message.
+this is a source comparison against the pinned reference, not proof that the
+installed phone decoded, reassembled or accepted the message. Swift re-encodes
+decoded text for signature verification, so a different valid compressor can
+still produce an incompatible signature preimage.
+
+the follow-up changes diagnostics and synthetic tests only:
+
+- `[tx]` includes decoded `payload_bytes` as well as wire payload bytes.
+- `[tx-progress]` reports submitted frames every 32 parts; `[tx-complete]`
+  reports the final count and elapsed milliseconds with `delivery=unconfirmed`.
+  neither is an application ACK; elapsed time includes the existing pacing.
+- over-limit rejection reports the actual UTF-8 byte count, exposing extra
+  pasted characters without trimming or silently discarding them.
+- authenticated `[rx-text]` includes wire size and `local_reencode_matches`.
+  a false result means local re-encoding differs from that received text; it
+  does not reject the incoming message or establish the outbound failure's
+  cause. signature verification still authenticates the original wire bytes.
+
+independent Python-zlib fixtures now cover the exact 2/8/16 KiB numbered
+samples and a repetitive 16 KiB control. the latter compresses to 70 payload
+bytes and two frames, compared with 6,430 bytes and 71 frames for the numbered
+sample at configured limit 128. both carry 16,384 decoded bytes.
+73 Linux application/library unit tests pass, including a simulated complete
+71-frame send, rejection after 32 submitted frames without replay, and a valid
+signed message with deliberately different DEFLATE encoding. fourteen PTY
+cases, launcher smoke and strict Linux/Windows target checks pass. the binary
+is rebuilt. there is no new hardware success or demonstrated root cause.
+
+## next diagnostic check
+
+restart the client with the command below, keeping BitChat foregrounded:
+
+```bash
+cd ~/dev/offline-link
+CHATT3R_LE_PEER= ./scripts/chatt3r --name laptop --debug --scan-seconds 10
+```
+
+1. verify short text and a fresh signed phone announcement.
+2. send the repetitive 16 KiB control, then the numbered 16 KiB sample, once
+   each. check the iPhone for `END-REPEAT-16384` and `END-16384`, expanding any
+   collapsed message. record receipt separately for each sample.
+3. retain sanitized `[tx]`, `[tx-progress]` and `[tx-complete]` metadata. if
+   either sample arrives, copy it back from the phone and retain `[rx-text]`.
+   provide the installed BitChat version and earlier 2/8 KiB results if known.
+
+the exact sample generators live in
+`desktop/bitchat-terminal/test-vectors/generate-public-text-long.py`; private
+local copies may be recreated in `/tmp`. a two-frame success and 71-frame
+failure would narrow the experiment, not uniquely identify compression versus
+fragment handling. stop for those physical observations before changing the
+working protocol or BLE behavior.
+
 ## changes and data flow
 
 `baseline/text_payload.rs:MAX_TEXT_BYTES` now allows **16,384 UTF-8 bytes**,

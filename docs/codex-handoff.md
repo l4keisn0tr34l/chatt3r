@@ -3,6 +3,23 @@
 for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
 
+current follow-up (2026-10-26): **16 KiB receipt diagnostics, not a protocol fix**.
+the user resumed the unresolved laptop → iPhone test. no new phone receipt,
+2/8 KiB results or installed app version have been supplied. the exact numbered
+sample now has an independent synthetic fixture: 16,384 decoded bytes,
+6,430 compressed payload bytes and 71 frames at configured limit 128, matching
+the earlier submission metadata. a second 16 KiB control uses 70 payload bytes
+and two frames. metadata now reports decoded size, submission progress/timing,
+completion with `delivery=unconfirmed`, actual rejected input size, and whether
+authenticated incoming text locally re-encodes to identical wire bytes.
+comparison is diagnostic only: verification still uses exact received bytes;
+no compression, signing, fragmentation policy, BLE or file behavior changes.
+73 application/library unit tests, fourteen PTY cases, launcher smoke and strict
+Linux/Windows target checks pass; the launcher binary is rebuilt. stop at
+[the two-sample phone comparison](text-formatting-checkpoint.md#next-diagnostic-check).
+native Windows hardware testing remains deferred; 16 KiB phone receipt is
+still unverified. the older phone gates below remain historical evidence.
+
 current candidate (2026-10-13): **16 KiB public text and preserved multiline paste**.
 the user requested a 16,384 UTF-8 byte limit and preservation of pasted line
 breaks, blank lines, indentation and spaces. the shared text codec and text-only
