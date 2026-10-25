@@ -3,6 +3,28 @@
 for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
 
+latest physical result (2026-10-26): **both 16 KiB outbound samples failed;
+reverse text reached a bounds rejection**. the repetitive sample submitted
+2/2 frames in 268 ms and the numbered sample 71/71 in 6,598 ms. the user
+explicitly saw neither on iPhone, while a three-byte short message arrived in
+the same session. a separate input during the long write was rejected; that
+notice did not cancel the completed 71-frame send. iPhone → laptop then
+completed a seven-part text assembly but reported `invalid compressed text
+bounds`; the excerpt does not expose its declared decoded size. the earlier
+version is recorded in `docs/upstream-analysis.md`: app store **v1.7.1**,
+not a fresh installed-version check. release source at `9edb7c26` has no
+apparent 16 KiB cap explaining these shapes; it differs from the newer pinned
+reference's receive limits, so do not apply those limits to the installed app.
+
+the new diagnostic preserves the rejected assembly's metadata-only shape and
+reports `declared_text_bytes`, `text_cap` and `compressed_bytes`, separating
+empty, over-budget and impossible-ratio errors. raw content, keys, identities
+and signatures are not logged. the 16 KiB limit and all acceptance conditions
+are retained. 75 unit tests, fourteen PTY cases, launcher smoke and strict
+Linux/Windows checks pass; the client is rebuilt. stop at
+[the reverse-size check](text-formatting-checkpoint.md#next-reverse-size-check).
+the cause of the outgoing failures remains unresolved; no message is replayed.
+
 current follow-up (2026-10-26): **16 KiB receipt diagnostics, not a protocol fix**.
 the user resumed the unresolved laptop → iPhone test. no new phone receipt,
 2/8 KiB results or installed app version have been supplied. the exact numbered

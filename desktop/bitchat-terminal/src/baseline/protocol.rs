@@ -41,6 +41,22 @@ pub fn frame_shape(bytes: &[u8]) -> String {
         .checked_add(length)
         .and_then(|n| n.checked_add(if flags & 2 != 0 { 64 } else { 0 }));
     let mut shape = format!("version={} kind=0x{:02x} flags=0x{flags:02x} declared_payload={length} actual={} expected={expected:?}", bytes[0], bytes[1], bytes.len());
+    if bytes[1] == MESSAGE && flags & 4 != 0 && flags & !7 == 0 {
+        let width = if header == 14 { 2 } else { 4 };
+        if length >= width {
+            if let Some(prefix) = bytes.get(payload_start..payload_start + width) {
+                let declared = if width == 2 {
+                    u16::from_be_bytes(prefix.try_into().unwrap()) as usize
+                } else {
+                    u32::from_be_bytes(prefix.try_into().unwrap()) as usize
+                };
+                shape.push_str(&format!(
+                    " declared_text_bytes={declared} text_cap={MAX_TEXT_BYTES} compressed_bytes={}",
+                    length - width
+                ));
+            }
+        }
+    }
     // If the unsigned 0x20 fragment prefix survived, its index and original
     // type distinguish media from announceV2 without disclosing the payload.
     if bytes[1] == FRAGMENT && flags & !0x03 == 0 {
@@ -412,10 +428,16 @@ struct Assembly {
 #[derive(Default)]
 pub struct Reassembler {
     pending: HashMap<([u8; 8], [u8; 8]), Assembly>,
+    rejected_shape: Option<String>,
 }
 
 impl Reassembler {
+    pub fn take_rejected_shape(&mut self) -> Option<String> {
+        self.rejected_shape.take()
+    }
+
     pub fn accept(&mut self, packet: Packet) -> Result<Option<Packet>, &'static str> {
+        self.rejected_shape = None;
         self.pending
             .retain(|_, a| a.started.elapsed() < Duration::from_secs(30));
         if packet.kind != FRAGMENT {
@@ -479,7 +501,9 @@ impl Reassembler {
         }
         let assembly = self.pending.remove(&key).unwrap();
         let bytes: Vec<u8> = assembly.parts.into_iter().flatten().flatten().collect();
-        let original = Packet::decode(&bytes)?;
+        let original = Packet::decode(&bytes).inspect_err(|_| {
+            self.rejected_shape = Some(frame_shape(&bytes));
+        })?;
         if original.sender != packet.sender
             || original.kind != kind
             || original.recipient != packet.recipient
@@ -533,6 +557,50 @@ mod tests {
         routed[11] = 0x08;
         assert!(frame_shape(&routed).contains("flags=0x08"));
         assert!(!frame_shape(&routed).contains("original_type="));
+    }
+
+    #[test]
+    fn rejected_assembled_text_reports_declared_size_without_content() {
+        for version in [1, 2] {
+            let mut packet = Packet::new(MESSAGE, [0x99; 8], 123, vec![b'a'; 1024]);
+            packet.version = version;
+            packet.sign(&SigningKey::from_bytes(&[0x42; 32])).unwrap();
+            let mut wire = packet.encode().unwrap();
+            let (offset, prefix) = if version == 1 {
+                (22, ((MAX_TEXT_BYTES + 1) as u16).to_be_bytes().to_vec())
+            } else {
+                (24, ((MAX_TEXT_BYTES + 1) as u32).to_be_bytes().to_vec())
+            };
+            wire[offset..offset + prefix.len()].copy_from_slice(&prefix);
+            let chunks = wire.chunks(40).collect::<Vec<_>>();
+            let mut collector = Reassembler::default();
+            for (index, chunk) in chunks.iter().enumerate() {
+                let mut payload = vec![0xab; 8];
+                payload.extend((index as u16).to_be_bytes());
+                payload.extend((chunks.len() as u16).to_be_bytes());
+                payload.push(MESSAGE);
+                payload.extend_from_slice(chunk);
+                let fragment = Packet::new(FRAGMENT, packet.sender, packet.timestamp, payload);
+                let result = collector.accept(fragment);
+                if index + 1 < chunks.len() {
+                    assert!(result.unwrap().is_none());
+                } else {
+                    assert_eq!(
+                        result.unwrap_err(),
+                        "compressed text declares more than 16384 decoded bytes"
+                    );
+                }
+            }
+            let shape = collector.take_rejected_shape().unwrap();
+            assert!(shape.contains("kind=0x02"));
+            assert!(shape.contains("declared_text_bytes=16385 text_cap=16384"));
+            assert!(!shape.contains("abababab"));
+            assert!(!shape.contains("99999999"));
+            assert!(collector.take_rejected_shape().is_none());
+            assert!(collector.pending.is_empty());
+            assert_eq!(collector.accept(packet.clone()).unwrap(), Some(packet));
+            assert!(collector.take_rejected_shape().is_none());
+        }
     }
 
     #[test]

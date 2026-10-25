@@ -26,6 +26,67 @@ or assembly failure. the pinned stock public-text receive cap is 128 KiB,
 with a 60,000-character sending guard; these do not establish the installed
 version's limits or rule out another rejection path.
 
+## two-sample physical result
+
+on 2026-10-26, the user tested the diagnostic build and explicitly reported
+neither 16 KiB sample received on iPhone:
+
+| decoded bytes | compressed payload bytes | submitted frames | elapsed | phone receipt |
+| ---: | ---: | ---: | ---: | --- |
+| 16,384 repetitive | 70 | 2/2 | 268 ms | user reports absent |
+| 16,384 numbered | 6,430 | 71/71 | 6,598 ms | user reports absent |
+
+the user confirmed a three-byte short message arrived in that same session.
+announcements continued; no link error is shown. a separate terminal input
+during the 71-frame write was rejected without cancelling that write. neither
+completion line is a receipt. a long fragment train alone cannot explain the
+two-frame failure, but the observations do not identify a unique cause.
+
+the reverse check reached a final fragment labelled `6/7`, original type
+`0x02`, then dropped the assembled text with `invalid compressed text bounds`.
+this rejection occurs before outer-message signature verification. the old
+diagnostic described the last fragment rather than the rejected inner packet,
+so it does not establish the inner size declaration or which bound failed.
+an over-limit copy and an encoding problem remain distinguishable possibilities.
+
+the version was recovered from the earlier notes: the user previously identified
+app store **v1.7.1**, recorded in `upstream-analysis.md`. the user expects that
+same version, but no fresh app-version inspection was made. local release tag
+`v1.7.1` resolves to `9edb7c26ef7bdcf3bb29e7907b38997f8d5cd0fa`.
+its `BinaryProtocol` uses the framed-file ceiling for decoded bounds,
+`BLEFragmentAssemblyBuffer` permits up to 10,000 parts, and its text composer
+guard is 60,000 characters. no apparent 16 KiB cap was found in these inspected
+paths. the newer pinned source's 128 KiB per-type receive cap is not the
+v1.7.1 implementation. compression and signing helpers match the inspected
+reference, which does not prove byte-for-byte Apple compression compatibility.
+
+## next reverse size check
+
+the follow-up diagnostic retains a bounded metadata string when final
+`Reassembler::accept` decoding fails. `[rx-assembled-shape]` reports the
+rejected inner header, including untrusted `declared_text_bytes`, `text_cap`
+and `compressed_bytes`. `original_size` now distinguishes empty declarations,
+declared decoded sizes above 16,384, and impossible expansion ratios. acceptance
+conditions, allocations and limits are unchanged; no raw packet data is saved.
+
+75 Linux unit tests cover the bounds distinctions and v1/v2 reassembled error
+metadata without content/identifiers, including consuming/clearing that metadata.
+fourteen PTY cases, launcher smoke and strict Linux/Windows target checks pass;
+the client is rebuilt. native Windows radio tests remain deferred.
+
+restart the laptop client using the command below, then repeat the same
+iPhone → laptop paste once. share only `[rx-assembled-shape]`, `[drop]`, or
+`[rx-text]` metadata. keep any copied sender/header text separate from the
+message, and do not increase the 16 KiB budget to bypass the rejection.
+if the declared size is above the cap, retry a smaller exact copy; if it is
+within the cap, use the specific error/comparison to choose the next experiment.
+stop for this hardware evidence before changing compression or BLE behavior.
+
+```bash
+cd ~/dev/offline-link
+CHATT3R_LE_PEER= ./scripts/chatt3r --name laptop --debug --scan-seconds 10
+```
+
 ## diagnostic follow-up
 
 on 2026-10-26 the user resumed this checkpoint without new receipt evidence.

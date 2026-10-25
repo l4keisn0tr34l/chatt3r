@@ -1256,9 +1256,11 @@ async fn chat_session(
                     output.diagnostic(&format!("[rx] value_bytes={} type={:?}", notification.value.len(), notification.value.get(1)))?;
                 }
                 if let Err(error) = receiver.receive(&notification.value, &output) {
+                    let rejected_shape = receiver.assembler.take_rejected_shape();
                     let first_error = is_fragment && reported_fragment_errors.len() < 16 && reported_fragment_errors.insert(error.to_string());
                     if sample || first_error {
-                        if is_fragment { output.diagnostic(&format!("[rx-shape] {}", protocol::frame_shape(&notification.value)))?; }
+                        output.diagnostic(&format!("[rx-shape] {}", protocol::frame_shape(&notification.value)))?;
+                        if let Some(shape) = rejected_shape { output.diagnostic(&format!("[rx-assembled-shape] {shape}"))?; }
                         output.diagnostic(&format!("[drop] {error}"))?;
                     }
                 }

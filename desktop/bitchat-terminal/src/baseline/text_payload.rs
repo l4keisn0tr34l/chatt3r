@@ -63,8 +63,14 @@ pub fn original_size(wire: &[u8], version: u8) -> Result<usize, &'static str> {
     } else {
         u32::from_be_bytes(wire[..4].try_into().unwrap()) as usize
     };
-    if size == 0 || size > MAX_TEXT_BYTES || size > (wire.len() - width).saturating_mul(1032) {
-        return Err("invalid compressed text bounds");
+    if size == 0 {
+        return Err("compressed text declares an empty payload");
+    }
+    if size > MAX_TEXT_BYTES {
+        return Err("compressed text declares more than 16384 decoded bytes");
+    }
+    if size > (wire.len() - width).saturating_mul(1032) {
+        return Err("compressed text declares an impossible expansion ratio");
     }
     Ok(size)
 }
@@ -154,5 +160,25 @@ mod tests {
         }
         assert!(inflate_text(&[0, 1, 255], 1).is_err());
         assert!(inflate_text(&wire, 3).is_err());
+    }
+
+    #[test]
+    fn declared_size_errors_distinguish_empty_oversize_and_ratio() {
+        assert_eq!(
+            original_size(&[0, 0, 0], 1).unwrap_err(),
+            "compressed text declares an empty payload"
+        );
+        let mut oversized = ((MAX_TEXT_BYTES + 1) as u16).to_be_bytes().to_vec();
+        oversized.push(0);
+        assert_eq!(
+            original_size(&oversized, 1).unwrap_err(),
+            "compressed text declares more than 16384 decoded bytes"
+        );
+        let mut ratio = (MAX_TEXT_BYTES as u16).to_be_bytes().to_vec();
+        ratio.push(0);
+        assert_eq!(
+            original_size(&ratio, 1).unwrap_err(),
+            "compressed text declares an impossible expansion ratio"
+        );
     }
 }
