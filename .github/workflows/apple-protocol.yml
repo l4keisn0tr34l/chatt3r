@@ -1,0 +1,51 @@
+name: apple protocol compatibility
+
+on:
+  push:
+    branches: [main, codex/apple-codec-check]
+    paths:
+      - .github/workflows/apple-protocol.yml
+      - tests/apple-protocol/**
+      - desktop/bitchat-terminal/test-vectors/public-text-long.json
+  pull_request:
+    paths:
+      - .github/workflows/apple-protocol.yml
+      - tests/apple-protocol/**
+      - desktop/bitchat-terminal/test-vectors/public-text-long.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apple-codec:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      CHATT3R_VECTORS: ${{ github.workspace }}/desktop/bitchat-terminal/test-vectors/public-text-long.json
+    steps:
+      - name: check out synthetic fixtures and test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: check out pinned stock codec
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: permissionlesstech/bitchat
+          ref: 9edb7c26ef7bdcf3bb29e7907b38997f8d5cd0fa # v1.7.1
+          path: apple-reference
+          persist-credentials: false
+          sparse-checkout: |
+            localPackages/BitFoundation
+            localPackages/BitLogger
+      - name: record Apple toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          sw_vers
+          uname -m
+      - name: install compatibility test in stock package
+        run: |
+          cp tests/apple-protocol/Chatt3rCompatibilityTests.swift apple-reference/localPackages/BitFoundation/Tests/BitFoundationTests/
+      - name: verify real Apple decoding, re-encoding and signatures
+        run: swift test --package-path apple-reference/localPackages/BitFoundation --filter Chatt3rCompatibilityTests
