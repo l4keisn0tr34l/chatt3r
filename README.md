@@ -18,9 +18,9 @@ JPEG saves have been verified locally, including a repeat and two larger images.
 | linux ↔ stock iphone bitchat text | user-confirmed on real devices |
 | quiet chat, colored nicknames, editable input | implemented; terminal-tested. multiline paste preserves line breaks and whitespace in one draft; Enter sends; [text checkpoint](docs/text-formatting-checkpoint.md) |
 | persistent ordinary Linux discovery | Linux ↔ iPhone discovery with the saved-phone setting bypassed and two link recoveries confirmed on hardware; empty scan windows keep renewing. desktop/Windows recovery remains unverified; [checkpoint](docs/persistent-discovery.md) |
-| startup reconnect attempts | bluez path: up to three per candidate; direct le: optional cancellable wait. one missing-service retry followed by connection observed; established-link reconnect pending |
-| known-phone connection recovery | `--direct-le` with `--wait-for-peer` returns to waiting after a failed write or lost link. first app-close test exited on setup OS error 38; post-success retry correction is software-tested, physical close/reopen retest pending. no user-message replay |
-| persistent known-phone room | one terminal through setup, waiting and link changes; `/peers`, `/announce`, `/quit` stay usable. draft/history persist; text while waiting or during a write is explicitly rejected. PTY-tested with simulated BLE; phone validation pending |
+| startup reconnect attempts | Linux known-phone setup retries with a five-second wait; ordinary chat renews scan windows. known-phone app return and ordinary phone rediscovery confirmed; adapter-fault and Windows recovery remain unverified |
+| known-phone connection recovery | `--direct-le` with `--wait-for-peer` returns to waiting after a failed write or lost link. app close/reopen and fresh short text confirmed after the OS error 38 correction; no user-message replay; [evidence](docs/codex-handoff.md) |
+| persistent known-phone room | one terminal through setup, waiting and link changes; commands stay usable and submitted text is never queued/replayed. known-phone room/retry checkpoint user-confirmed; draft/history and cancellation covered by PTY tests |
 | known dual-mode phone whose bluez profile hides bitchat | linux `--direct-le` path; bidirectional iphone text user-confirmed, including an offline run |
 | longer text / compression | **16 KiB UTF-8 limit, software-tested**. iPhone → Linux **16,383-byte compressed prose received and authenticated**, with matching local re-encoding. **100/256/1,024-byte numbered ASCII confirmed both ways** earlier; current large Linux → iPhone sends fail. [next physical check](docs/text-formatting-checkpoint.md#next-single-frame-check); native Windows testing deferred |
 | public file receive | opt-in `--receive-files <existing-dir>` on Linux phone link; **four iPhone JPEG saves verified locally**: 3,485 bytes twice with identical hashes, plus 39,907 and 44,478 bytes; all fully decode. user visually confirmed the first image; original-byte/hash comparison unavailable. earlier MTU 517/value 514 and full 504-byte fragments were confirmed; the earlier 46-part image and compressed-fragment behavior still need specific radio evidence. no sending, private files, or general media guarantee |
@@ -163,9 +163,9 @@ adapter supports it. another link may need a different value:
 chatt3r --write-limit 64 --debug
 ```
 
-### the 1,024-byte text limit
+### the 16 kib text limit
 
-messages currently have to fit in **1,024 utf-8 bytes**. plain english characters
+messages currently have to fit in **16,384 utf-8 bytes**. plain english characters
 usually use one byte; emoji and other unicode characters may use more.
 
 - longer outgoing messages are rejected, not truncated.
@@ -174,6 +174,9 @@ usually use one byte; emoji and other unicode characters may use more.
 
 the user confirmed **100-, 256- and 1,024-byte numbered ASCII messages both
 ways on Linux ↔ iphone**, including compressed and fragmented delivery.
+authenticated **16,383-byte prose also arrived iPhone → Linux**, with matching
+local re-encoding. large Linux → iPhone delivery still fails and is being
+isolated with a [one-frame control](docs/text-formatting-checkpoint.md#next-single-frame-check).
 native Windows longer text and Unicode/high-diversity radio tests remain
 pending. below 100 bytes the previous uncompressed wire/signing format
 is preserved. larger public texts can use bounded raw-DEFLATE compression;
@@ -244,13 +247,26 @@ for development checks, with cargo on your path:
 cargo test --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r --lib
 cargo clippy --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r -- -D warnings
 python3 tests/launcher-smoke.py
+python3 tests/test-text-samples.py
 python3 desktop/bitchat-terminal/tests/ui-smoke.py
 ```
 
-currently: 61 passing unit tests, launcher tests with fake tools, and nine linux
-pty cases for draft redraw, colors, persistent room commands, link loss/return,
-no replay and exit/terminal restoration. four interactive
+currently: 75 passing application/library unit tests, four sample-exporter CLI
+tests, launcher tests with fake tools, and fourteen Linux PTY cases for multiline
+paste, draft redraw, colors, persistent room commands, link loss/return,
+no replay and exit/terminal restoration. seven interactive
 tests are skipped in the normal unit run and exercised by the pty script.
+
+prepare exact-size synthetic text for a manual device check without touching
+Bluetooth:
+
+```bash
+python3 tests/text-samples.py /tmp/chatt3r-text-check --write-limit 182
+```
+
+the helper exports eight text files without adding a newline, refuses conflicting
+files/symlinks, and reports expected fixture sizes/frame counts. it sends nothing;
+`--write-limit` here is a calculation input, not a change to the running client.
 
 one unit test also simulates two signed peers exchanging fragmented public text
 without bluetooth. it exercises the shared receiver, **not** laptop ↔ laptop

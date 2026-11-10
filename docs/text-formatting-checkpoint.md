@@ -55,21 +55,33 @@ unchanged when it fits; at configured limit 182 this control uses one write.
 the direct-LE backend still clamps the operator limit to the negotiated value.
 the synthetic fixture and source establish the expected shape, not receipt.
 
-stop the old client and run this one-command override:
+prepare exact-byte synthetic samples, then stop the old client and run the
+existing write-limit override:
 
 ```bash
 cd ~/dev/offline-link
+python3 tests/text-samples.py /tmp/chatt3r-text-check --write-limit 182
 CHATT3R_LE_PEER= ./scripts/chatt3r --name laptop --debug --scan-seconds 10 --write-limit 182
 ```
 
-after a fresh signed announcement and short-text check, send the exact
-repetitive control once. expect `[tx]` to show `payload_bytes=16384`,
+after a fresh signed announcement, first confirm a short laptop message
+actually appears on the phone. the 182 override also changes the 162-byte
+announcement from two frames to one, so this check establishes a usable baseline
+before interpreting the large control. copy the contents of
+`/tmp/chatt3r-text-check/repeat-16384.txt` and send once. expect `[tx]` to show `payload_bytes=16384`,
 `wire_payload_bytes=70`, `frames=1` and `configured_limit=182` on a link with
 the previously observed MTU. explicitly check for the full ending marker on
 the phone and retain only sanitized metadata. this is an existing CLI override;
 launcher defaults, requested MTU, discovery/roles and saved settings are unchanged.
 it removes fragmentation from this control and is not a demonstrated fix.
 stop for physical receipt evidence before changing protocol behavior.
+
+the exporter reads only committed synthetic fixtures, creates new files with
+mode 0600 requested, reuses identical files without rewriting, and refuses
+conflicting files/symlinks. its `--write-limit` option prints expected counts;
+it does not connect, pair, change settings or send anything. four stdlib CLI
+tests cover exact bytes, the 128/182 frame boundary, safe file handling and
+argument limits. the hardware result remains pending.
 
 ## two-sample physical result
 

@@ -3,6 +3,18 @@
 for a copy-paste codex-cli prompt and the next physical protocol checkpoint, see
 [codex-cli-handoff.md](codex-cli-handoff.md).
 
+tooling checkpoint (2026-11-10): **reproducible text samples; production code
+unchanged**. `python3 tests/text-samples.py /tmp/chatt3r-text-check --write-limit 182`
+exports eight exact-byte synthetic samples and prints expected decoded/wire/
+signed sizes and frame counts. it does not use Bluetooth or change the client.
+four stdlib CLI tests, the existing 75 unit tests, launcher smoke and fourteen
+PTY cases pass. the independent protocol review found no reproduced local codec
+defect; a modeled stock offset-zero batching hazard remains unverified on radio.
+the existing one-frame phone check still gates further protocol work. because
+182 also makes the announcement one frame, require actual short-text receipt
+on the phone before interpreting the large control. personal planning stays in
+ignored `TODO.md`; native Windows hardware testing remains deferred.
+
 current result (2026-10-26): **iPhone → Linux 16,383-byte prose confirmed;
 large Linux → iPhone still fails**. the authenticated incoming message reports
 1,153 wire payload bytes, compression enabled and `local_reencode_matches=true`.
@@ -357,6 +369,7 @@ by this result. stop before starting another implementation milestone.
 cargo test --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r --lib
 cargo clippy --offline --locked --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r -- -D warnings
 python3 tests/launcher-smoke.py
+python3 tests/test-text-samples.py
 python3 desktop/bitchat-terminal/tests/ui-smoke.py
 cargo check --offline --locked --target x86_64-pc-windows-gnu --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r
 cargo clippy --offline --locked --target x86_64-pc-windows-gnu --manifest-path desktop/bitchat-terminal/Cargo.toml --bin chatt3r -- -D warnings
